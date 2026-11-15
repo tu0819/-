@@ -363,3 +363,14 @@ with tab2:
             st.rerun()
     else:
         st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
+# 【修正】改用更即時的最新價抓取方式
+            try:
+                ticker_obj = yf.Ticker(sym)
+                # 嘗試取得最新成交價
+                curr_p = ticker_obj.fast_info.get('last_price', None)
+                if not curr_p:
+                    # 若無法取得，退回抓最近一天的收盤價
+                    t_df = ticker_obj.history(period="1d")
+                    curr_p = float(t_df['Close'].iloc[-1])
+            except:
+                curr_p = cst  # 若皆失敗則暫用成本替代
