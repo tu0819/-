@@ -6,9 +6,38 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 設定網頁標題與寬度
-st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide")
+st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide", initial_sidebar_state="expanded")
 
-st.title("專業級智慧股票與量化資產管理平台 (高效穩定版)")
+# ==================== 自訂現代化高質感 CSS 樣式 ====================
+st.markdown("""
+<style>
+    /* 全局字體與背景微調 */
+    .main {
+        background-color: #0e1117;
+    }
+    /* 卡片區塊容器外觀 */
+    .metric-card {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        padding: 18px 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 10px;
+    }
+    /* 標題與文字質感優化 */
+    h1, h2, h3 {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        letter-spacing: -0.5px;
+    }
+    /* 側邊欄外觀優化 */
+    sidebar-content {
+        background-color: #111418;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("⚡ ProTrader 專業級量化資產管理與看盤平台")
+st.markdown("<p style='color: #8b949e; margin-top: -10px;'>結合即時行情、量化回測與台股精準稅費校正的智慧投資儀表板</p>", unsafe_allow_html=True)
 
 # ==================== 初始化 Session State ====================
 if 'watchlist' not in st.session_state:
@@ -18,39 +47,39 @@ if 'portfolio' not in st.session_state:
     st.session_state.portfolio = []
 
 # ==================== 側邊欄設定 ====================
-st.sidebar.header("參數與導航面板")
+st.sidebar.header("🎛️ 參數與導航控制台")
 
-# 【新增】一鍵重新整理按鈕（清除快取並重新載入最新資料）
-if st.sidebar.button("🔄 立即重新整理最新行情"):
+# 一鍵重新整理按鈕
+if st.sidebar.button("🔄 立即重新整理最新行情", use_container_width=True):
     st.cache_data.clear()
     st.success("已清除快取並更新最新行情！")
     st.rerun()
 
 st.sidebar.markdown("---")
 
-selected_fav = st.sidebar.selectbox("快速載入收藏股票", ["-- 選擇收藏股票 --"] + st.session_state.watchlist)
+selected_fav = st.sidebar.selectbox("⭐ 快速載入收藏股票", ["-- 選擇收藏股票 --"] + st.session_state.watchlist)
 default_symbol = selected_fav if selected_fav != "-- 選擇收藏股票 --" else "0050.TW"
-stock_symbol = st.sidebar.text_input("輸入或修改股票代號 (台股加 .TW)", value=default_symbol)
+stock_symbol = st.sidebar.text_input("📝 輸入或修改股票代號 (台股加 .TW)", value=default_symbol)
 
 col_fav1, col_fav2 = st.sidebar.columns(2)
 with col_fav1:
-    if st.button("加入收藏"):
+    if st.button("➕ 加入收藏", use_container_width=True):
         if stock_symbol.upper() not in st.session_state.watchlist:
             st.session_state.watchlist.append(stock_symbol.upper())
-            st.success(f"已將 {stock_symbol.upper()} 加入收藏！")
+            st.success(f"已加入！")
 with col_fav2:
-    if st.button("移除收藏"):
+    if st.button("🗑️ 移除收藏", use_container_width=True):
         if stock_symbol.upper() in st.session_state.watchlist:
             st.session_state.watchlist.remove(stock_symbol.upper())
-            st.warning(f"已將 {stock_symbol.upper()} 移除收藏。")
+            st.warning(f"已移除。")
 
 st.sidebar.markdown("---")
-benchmark_symbol = st.sidebar.text_input("大盤對標代號", value="^TWII")
-period = st.sidebar.selectbox("選擇回測時間範圍", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=1)
+benchmark_symbol = st.sidebar.text_input("📈 大盤對標代號", value="^TWII")
+period = st.sidebar.selectbox("⏳ 選擇回測時間範圍", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=1)
 
 # 券商一鍵選擇與交易成本設定
-st.sidebar.subheader("交易成本與券商設定 (台股)")
-include_fees = st.sidebar.checkbox("計入手續費與證交稅", value=True, help="自動扣除買賣手續費及證交稅（ETF享0.1%優惠稅率）")
+st.sidebar.subheader("💰 交易成本與券商設定")
+include_fees = st.sidebar.checkbox("自動扣除買賣手續費及證交稅", value=True, help="ETF享0.1%優惠稅率，一般股票0.3%")
 
 broker_options = {
     "台新證券 (預設 2.8 折)": 2.8,
@@ -63,33 +92,28 @@ broker_options = {
     "自訂手續費折扣": 2.8
 }
 
-selected_broker = st.sidebar.selectbox("選擇您的交割券商", list(broker_options.keys()))
+selected_broker = st.sidebar.selectbox("🏦 選擇您的交割券商", list(broker_options.keys()))
 
 if selected_broker == "自訂手續費折扣":
     broker_discount = st.sidebar.slider("自訂電子手續費折扣 (折)", 1.0, 10.0, 2.8, 0.1)
 else:
     broker_discount = broker_options[selected_broker]
-    st.sidebar.caption(f"ℹ️ 已自動套用 {selected_broker} 常用電子折扣：**{broker_discount} 折**")
+    st.sidebar.caption(f"✨ 已套用 {selected_broker} 常用折扣：**{broker_discount} 折**")
 
-st.sidebar.subheader("停損與停利設定")
+st.sidebar.subheader("🛑 風控與停損停利")
 enable_sl = st.sidebar.checkbox("啟用停損機制 (Stop-Loss)", value=True)
 sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 個股專屬持倉評估與即時現價覆蓋
-st.sidebar.subheader("當前個股持倉與現價校正")
-user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
-user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
-user_manual_price = st.sidebar.number_input(
-    "手動覆蓋現價 (若填 0 則自動抓取行情)", 
-    value=0.0, 
-    step=0.01, 
-    help="💡 若想與券商 App 完全一致，可在此輸入當下現價！"
-)
+# 個股持倉與現價校正
+st.sidebar.subheader("🎯 當前個股持倉與現價校正")
+user_cost = st.sidebar.number_input("平均買價 (無持倉填0)", value=0.0, step=0.1)
+user_shares = st.sidebar.number_input("持有股數 (無持倉填0)", value=0.0, step=100.0)
+user_manual_price = st.sidebar.number_input("手動覆蓋現價 (填0則自動抓行情)", value=0.0, step=0.01, help="可輸入券商 App 當下現價以完美對齊！")
 
-# ==================== 資料載入函數 (高穩定度) ====================
+# ==================== 資料載入函數 ====================
 @st.cache_data
 def load_stock_data(symbol, time_period):
     try:
@@ -115,11 +139,11 @@ data = load_stock_data(stock_symbol, period)
 bench_data = load_benchmark(benchmark_symbol, period)
 
 # ==================== 主畫面分頁籤設計 ====================
-tab1, tab2 = st.tabs(["個股深度分析與持倉建議", "我的多檔持股總覽與資產診斷"])
+tab1, tab2 = st.tabs(["📊 個股深度分析與風控建議", "📋 我的多檔持股總覽與資產診斷"])
 
 with tab1:
     if not data.empty and len(data) > 0:
-        st.subheader(f"📊 {stock_symbol.upper()} 技術分析與進出場訊號圖")
+        st.markdown(f"### 📈 `{stock_symbol.upper()` 技術走勢與量化訊號")
 
         window_len = min(5, len(data))
         long_window = min(20, len(data))
@@ -182,42 +206,50 @@ with tab1:
         else:
             total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
-        # 繪製圖表
+        # 高質感圖表設計
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
                             row_heights=[0.6, 0.2, 0.2],
                             subplot_titles=("價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
         
-        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='black', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='短期均線', line=dict(color='orange', width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='長期均線', line=dict(color='blue', width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='布林上軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='布林下軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash'), fill='tonexty'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='#58a6ff', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='短期均線 (5MA)', line=dict(color='#ffa657', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='長期均線 (20MA)', line=dict(color='#1f6feb', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='布林上軌', line=dict(color='rgba(88,166,255,0.2)', dash='dash')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='布林下軌', line=dict(color='rgba(88,166,255,0.2)', dash='dash'), fill='tonexty'), row=1, col=1)
         
-        fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', name='建議進場 (買)', marker=dict(symbol='triangle-up', size=14, color='green')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', name='建議出場 (賣)', marker=dict(symbol='triangle-down', size=14, color='red')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', name='建議買進', marker=dict(symbol='triangle-up', size=12, color='#2ea043')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', name='建議賣出', marker=dict(symbol='triangle-down', size=12, color='#da3633')), row=1, col=1)
         
         if not bench_data.empty and len(bench_data) > 0:
             bench_close = bench_data['Close'] / bench_data['Close'].iloc[0] * data['Close'].iloc[0]
-            fig.add_trace(go.Scatter(x=bench_data.index, y=bench_close, name=f'大盤基準 ({benchmark_symbol})', line=dict(color='gray', dash='dot')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=bench_data.index, y=bench_close, name=f'大盤基準 ({benchmark_symbol})', line=dict(color='#8b949e', dash='dot')), row=1, col=1)
 
-        colors = ['red' if row['Close'] < row['Open'] else 'green' for index, row in data.iterrows()]
+        colors = ['#da3633' if row['Close'] < row['Open'] else '#2ea043' for index, row in data.iterrows()]
         fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='成交量', marker_color=colors), row=2, col=1)
         
-        fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='purple', width=1)), row=3, col=1)
-        fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='#bc8cff', width=1)), row=3, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="#da3633", row=3, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="#2ea043", row=3, col=1)
 
-        fig.update_layout(height=800)
+        # 佈局套用深色現代風外觀
+        fig.update_layout(
+            height=750,
+            template="plotly_dark",
+            paper_bgcolor="#0e1117",
+            plot_bgcolor="#161b22",
+            margin=dict(l=20, r=20, t=30, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
         st.plotly_chart(fig, use_container_width=True)
 
         # 策略績效看板
-        st.subheader("🎯 量化回測表現與每筆交易期望值 (EV)")
+        st.markdown("### 🎯 量化回測表現與每筆交易期望值 (EV)")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.metric("總回測交易次數", f"{total_trades} 次")
         with c2:
-            st.metric("勝率 (Win Rate)", f"{win_rate * 100:.2f}%")
+            st.metric("策略勝率", f"{win_rate * 100:.2f}%")
         with c3:
             st.metric("平均賺賠比", f"賺 {avg_win*100:.2f}% / 賠 {avg_loss*100:.2f}%")
         with c4:
@@ -226,7 +258,7 @@ with tab1:
 
         # 個人持倉績效與風控評估
         st.markdown("---")
-        st.subheader(f"🛡️ {stock_symbol.upper()} 個人持倉分析與進出場建議")
+        st.markdown(f"### 🛡️ `{stock_symbol.upper()` 個人持倉與風險管理")
 
         market_latest_close = float(data['Close'].iloc[-1])
         effective_close = user_manual_price if user_manual_price > 0 else market_latest_close
@@ -266,16 +298,20 @@ with tab1:
                 st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
             
             if effective_close <= my_sl_price:
-                st.error(f"🚨 【當下出場警示】目前參考價 ({effective_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+                st.error(f"🚨 **【停損警示】** 目前參考價 ({effective_close:.2f}) 已觸及或跌破停損價 ({my_sl_price:.2f})！建議果斷執行紀律出場。")
             elif effective_close >= my_tp_price:
-                st.success(f"🎯 【當下出場警示】目前參考價 ({effective_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+                st.success(f"🎯 **【停利警示】** 目前參考價 ({effective_close:.2f}) 已達到停利目標 ({my_tp_price:.2f})！建議考慮獲利了結。")
             else:
                 buffer_amt = effective_close - my_sl_price
-                st.info(f"🛡️ 【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
+                st.info(f"🛡️ **【持倉安全】** 目前營運正常，距離停損價尚有 {buffer_amt:.2f} 元緩衝空間。")
         else:
-            st.info("💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將即時為您分析該檔股票的未實現損益！")
+            st.markdown("""
+                <div style='background-color: #161b22; border: 1px dashed #30363d; padding: 15px; border-radius: 8px; color: #8b949e; text-align: center;'>
+                    💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的<strong>「平均買價」</strong>與<strong>「持有股數」</strong>，系統將即時為您計算含手續費與稅費的精準損益！
+                </div>
+            """, unsafe_allow_html=True)
 
-        with st.expander("🔍 檢視詳細歷史價格與變動明細表"):
+        with st.expander("🔍 點擊展開：詳細歷史價格與變動明細表"):
             detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
             detail_df['價格變動(元)'] = detail_df['Close'].diff()
             detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
@@ -286,7 +322,7 @@ with tab1:
             }), use_container_width=True)
 
         st.markdown("---")
-        st.subheader("🤖 當下技術面綜合操作指引")
+        st.markdown("### 🤖 當下技術面綜合操作指引")
         latest_sma5 = float(data['SMA_5'].iloc[-1])
         latest_sma20 = float(data['SMA_20'].iloc[-1])
         latest_rsi = float(data['RSI'].iloc[-1])
@@ -294,25 +330,25 @@ with tab1:
         if latest_sma5 > latest_sma20:
             if latest_rsi > 70:
                 box_func = st.warning
-                action_title, action_desc = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）", "短期均線大於長期均線，但 RSI 進入超買區，短線有回檔壓力。"
+                action_title, action_desc = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）", "短期均線大於長期均線，但 RSI 進入 70 超買區，短線留意回檔風險。"
             else:
                 box_func = st.success
-                action_title, action_desc = "建議偏多操作 / 可考慮進場續抱", "短期均線大於長期均線且 RSI 處於健康區間，符合多頭趨勢。"
+                action_title, action_desc = "建議偏多操作 / 可考慮續抱", "短期均線大於長期均線且 RSI 處於健康區間，符合多頭趨勢。"
         else:
             if latest_rsi < 30:
                 box_func = st.info
-                action_title, action_desc = "空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）", "均線雖屬空頭，但 RSI 已跌破 30 超賣區，可能出現跌深反彈。"
+                action_title, action_desc = "空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）", "均線雖屬空頭，但 RSI 已跌破 30 超賣區，可能出現跌深反彈機會。"
             else:
                 box_func = st.error
-                action_title, action_desc = "建議空手觀望 / 暫時避險", "短期均線小於長期均線，趨勢向下，建議耐心等待黃金交叉。"
+                action_title, action_desc = "建議空手觀望 / 暫時避險", "短期均線小於長期均線，趨勢偏空，建議耐心等待黃金交叉訊號。"
 
-        box_func(f"### {action_title}\n{action_desc}")
+        box_func(f"#### {action_title}\n{action_desc}")
     else:
         st.error("找不到該股票代號的歷史資料，請確認代號是否正確（台股請加 .TW，例如 0050.TW）。")
 
 with tab2:
-    st.subheader("📋 我的多檔持股總覽與資產配置診斷")
-    st.markdown("在此新增您名下的各個持股部位，App 將自動套用您所選券商的折扣與稅費，計算總淨市值與未實現損益！")
+    st.markdown("### 📋 多檔持股總覽與資產配置診斷")
+    st.markdown("在此新增您名下的各個持股部位，App 將自動套用您所選券商的折扣與稅費，計算真實淨市值與未實現損益！")
 
     with st.form("add_holding_form"):
         col_f1, col_f2, col_f3 = st.columns(3)
@@ -323,7 +359,7 @@ with tab2:
         with col_f3:
             new_cost = st.number_input("平均買價", value=500.0, step=0.5)
         
-        submitted = st.form_submit_button("➕ 新增至我的持股清單")
+        submitted = st.form_submit_button("➕ 新增至我的持股清單", use_container_width=True)
         if submitted:
             st.session_state.portfolio.append({
                 "symbol": new_sym.upper(),
@@ -333,7 +369,7 @@ with tab2:
             st.success(f"成功新增 {new_sym.upper()}！")
 
     if len(st.session_state.portfolio) > 0:
-        st.markdown("### 目前持股明細")
+        st.markdown("#### 目前持股明細")
         portfolio_data = []
         total_market_value = 0
         total_cost_value = 0
@@ -376,7 +412,7 @@ with tab2:
                 "股數": shs,
                 "平均成本": cst,
                 "現價": round(curr_p, 2),
-                "含稅市值(元)": round(item_net_val, 2),
+                "含稅淨市值(元)": round(item_net_val, 2),
                 "未實現損益(元)": round(pnl, 2),
                 "報酬率(%)": f"{pnl_pct:.2f}%"
             })
@@ -388,7 +424,7 @@ with tab2:
         total_pnl_pct = (total_pnl / total_cost_value * 100) if total_cost_value > 0 else 0
 
         st.markdown("---")
-        st.subheader("💰 整體資產總結 (含交易成本)")
+        st.markdown("### 💰 整體資產總結 (含交易成本)")
         pc1, pc2, pc3 = st.columns(3)
         with pc1:
             st.metric("總投資成本 (含買進手續費)", f"{total_cost_value:,.2f} 元")
