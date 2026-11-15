@@ -36,18 +36,14 @@ def load_data(symbol, bench_symbol, time_period):
         
     return df, bench
 
-# 取得基本面資訊 (加入防呆與 ETF 判斷)
 @st.cache_data
 def load_fundamentals(symbol):
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         sector = info.get("sector", None)
-        
-        # 如果沒有 Sector 或代號含有 ETF 相關特性，歸類為 ETF
         if not sector:
             sector = "指數股票型基金 (ETF)"
-            
         return {
             "name": info.get("longName", symbol),
             "pe_ratio": info.get("trailingPE", "N/A"),
@@ -72,14 +68,9 @@ if not data.empty:
             pe = f"{fund_info['pe_ratio']:.2f}" if isinstance(fund_info['pe_ratio'], (int, float)) else "資料未提供"
             st.metric("本益比 (P/E)", pe)
         with f3:
-            # 智慧修正殖利率顯示防呆
             dy_val = fund_info['div_yield']
             if dy_val is not None and isinstance(dy_val, (int, float)):
-                # 如果大於 1，代表 API 回傳的本身就是百分比格式；若小於 1 則是小數
-                if dy_val > 1:
-                    dy_str = f"{dy_val:.2f}%"
-                else:
-                    dy_str = f"{dy_val * 100:.2f}%"
+                dy_str = f"{dy_val:.2f}%" if dy_val > 1 else f"{dy_val * 100:.2f}%"
             else:
                 dy_str = "依當年度配息而定"
             st.metric("預估殖利率", dy_str)
@@ -88,7 +79,7 @@ if not data.empty:
             st.metric("市值 / 規模", mc)
         st.markdown("---")
 
-    # ==================== 技術指標計算 ====================
+    # ==================== 技術指標與訊號計算 ====================
     data['SMA_5'] = data['Close'].rolling(window=5).mean()
     data['SMA_20'] = data['Close'].rolling(window=20).mean()
     
@@ -108,6 +99,9 @@ if not data.empty:
     # 交易訊號
     data['Position'] = np.where(data['SMA_5'] > data['SMA_20'], 1, 0)
     data['Signal'] = data['Position'].diff()
+
+    buy_signals = data[data['Signal'] == 1]
+    sell_signals = data[data['Signal'] == -1]
 
     # ==================== 回測模擬 ====================
     trades = []
@@ -150,18 +144,21 @@ if not data.empty:
         total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
     # ==================== 繪製圖表 ====================
-    st.subheader(f"📊 {stock_symbol.upper()} 多功能技術分析與大盤對比圖")
+    st.subheader(f"📊 {stock_symbol.upper()} 多功能技術分析與進出場訊號圖")
     
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.03, 
                         row_heights=[0.6, 0.2, 0.2],
-                        subplot_titles=(f"價格、均線與布林通道", "成交量 (Volume)", "RSI 強弱指標"))
+                        subplot_titles=(f"價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
     
     fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='black', width=1.5)), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='5日線', line=dict(color='orange', width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='20日月線', line=dict(color='blue', width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='布林上軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash')), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='布林下軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash'), fill='tonexty'), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', name='建議進場 (買)', marker=dict(symbol='triangle-up', size=14, color='green')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', name='建議出場 (賣)', marker=dict(symbol='triangle-down', size=14, color='red')), row=1, col=1)
     
     if not bench_data.empty:
         bench_close = bench_data['Close'] / bench_data['Close'].iloc[0] * data['Close'].iloc[0]
@@ -190,25 +187,47 @@ if not data.empty:
     with c4:
         st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                   delta="正向優勢" if expected_value > 0 else "負向劣勢")
-        
-    latest_rsi = data['RSI'].iloc[-1]
-    latest_sma5 = data['SMA_5'].iloc[-1]
-    latest_sma20 = data['SMA_20'].iloc[-1]
-    
-    st.subheader("🤖 當下技術指標綜合評估")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if latest_sma5 > latest_sma20:
-            st.success("🔥 **均線結構：多頭排列 (5日線 > 20日線)**")
-        else:
-            st.warning("⚠️ **均線結構：空頭排列 (5日線 < 20日線)**")
-    with col_b:
-        if latest_rsi > 70:
-            st.warning(f"⚠️ **RSI 狀態：目前數值為 {latest_rsi:.1f}，進入超買區（慎防回檔）**")
-        elif latest_rsi < 30:
-            st.info(f"💡 **RSI 狀態：目前數值為 {latest_rsi:.1f}，進入超賣區（可能醞釀反彈）**")
-        else:
-            st.success(f"✅ **RSI 狀態：目前數值為 {latest_rsi:.1f}，處於健康中性區間**")
 
-else:
-    st.error("找不到該股票代號，請確認代號是否正確（台股請加 .TW，例如 0050.TW）。")
+    # ==================== 【全新強化】當下進出場綜合建議看板 ====================
+    st.markdown("---")
+    st.subheader("🤖 當下進出場綜合建議與操作指引")
+
+    latest_close = float(data['Close'].iloc[-1])
+    latest_sma5 = float(data['SMA_5'].iloc[-1])
+    latest_sma20 = float(data['SMA_20'].iloc[-1])
+    latest_rsi = float(data['RSI'].iloc[-1])
+
+    # 計算參考停損停利價
+    ref_sl_price = latest_close * (1 - sl_pct / 100)
+    ref_tp_price = latest_close * (1 + tp_pct / 100)
+
+    # 綜合評判邏輯
+    if latest_sma5 > latest_sma20:
+        if latest_rsi > 70:
+            action_title = "🟡 多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
+            action_desc = "目前短均線大於長均線（多頭排列），但 RSI 指標已進入 70 以上超買區，短線有回檔壓力，不宜過度追高。"
+            box_func = st.warning
+        else:
+            action_title = "🟢 建議偏多操作 / 可考慮進場續抱"
+            action_desc = "目前短均線大於長均線且 RSI 處於健康區間，符合多頭趨勢，歷史統計與技術結構具備正面優勢。"
+            box_func = st.success
+    else:
+        if latest_rsi < 30:
+            action_title = "🔵 空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）"
+            action_desc = "目前均線雖屬空頭，但 RSI 已跌破 30 進入超賣區，可能出現跌深反彈，適合風險承受度較高者嘗試。"
+            box_func = st.info
+        else:
+            action_title = "🔴 建議空手觀望 / 暫時避險"
+            action_desc = "目前短均線小於長均線（空頭排列），且 RSI 處於中性偏弱區間，趨勢向下，建議耐心等待黃金交叉。"
+            box_func = st.error
+
+    # 用色彩框呈現當下總結
+    box_func(f"### {action_title}\n{action_desc}")
+
+    # 細節指標與參考價位
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        st.metric("最新收盤參考價", f"{latest_close:.2f}")
+    with col_y:
+        st.metric(f"參考停損價位 (-{sl_pct}%)", f"{ref_sl_price:.2f}", delta=f"-{sl_pct}%", delta_color="inverse")
+    with col_
