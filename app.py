@@ -51,14 +51,14 @@ interval = st.sidebar.selectbox(
     help="Yahoo限制：1m僅支援7天內；1h/30m/15m/5m支援60天內。若選擇不相容會自動幫您調整。"
 )
 
-# 【防呆機制】自動檢查 Yahoo API 限制
+# 防呆機制：自動檢查 Yahoo API 限制
 if interval == "1m" and period not in ["1d", "5d", "7d"]:
     st.sidebar.warning("⚠️ 提醒：1分鐘線(1m)最多只能查詢 7 天內，已自動將時間範圍調為 7d。")
     period = "7d"
 elif interval in ["1h", "30m", "15m", "5m"] and period in ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]:
-    st.sidebar.warning(f"⚠️ 提醒：{interval} 頻率最多支援 60 天內，已自動將時間範圍調為 60d 以內可用的範圍。")
+    st.sidebar.warning(f"⚠️ 提醒：{interval} 頻率最多支援 60 天內，已自動將時間範圍調為適當區間。")
     if period in ["1mo"]:
-        pass # 1個月大致在60天內，勉強可過
+        pass
     else:
         period = "1mo"
 
@@ -69,10 +69,11 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 個股專屬持倉評估輸入框
-st.sidebar.subheader("當前個股持倉評估")
+# 個股專屬持倉評估與即時現價覆蓋
+st.sidebar.subheader("當前個股持倉與現價校正")
 user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
+user_manual_price = st.sidebar.number_input("手動覆蓋現價 (若填 0 則自動抓取市場行情)", value=0.0, step=0.05, help="若想與券商App數字完全一致，可在此填入當下券商現價")
 
 # ==================== 資料載入與處理 ====================
 @st.cache_data
@@ -242,17 +243,19 @@ with tab1:
             st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                       delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-        # 個股專屬持倉績效與風控評估
+        # 個股專屬持倉績效與風控評估（支援手動現價覆蓋）
         st.markdown("---")
         st.subheader(f"{stock_symbol.upper()} 個人持倉分析與進出場建議")
 
-        latest_close = float(data['Close'].iloc[-1])
+        market_latest_close = float(data['Close'].iloc[-1])
+        # 決定最終使用的現價：若用戶有手動輸入現價則優先採用，否則用自動抓取的行情價
+        effective_close = user_manual_price if user_manual_price > 0 else market_latest_close
 
         if user_cost > 0 and user_shares > 0:
             total_cost = user_cost * user_shares
-            market_value = latest_close * user_shares
+            market_value = effective_close * user_shares
             pnl_amount = market_value - total_cost
-            my_return = (latest_close - user_cost) / user_cost * 100
+            my_return = (effective_close - user_cost) / user_cost * 100
             my_sl_price = user_cost * (1 - sl_pct / 100)
             my_tp_price = user_cost * (1 + tp_pct / 100)
 
@@ -260,21 +263,39 @@ with tab1:
             with mc1:
                 st.metric("持倉總市值 / 總成本", f"{market_value:,.0f} / {total_cost:,.0f}")
             with mc2:
-                st.metric("未實現損益 (金額 / %)", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
+                price_source_label = " (手動現價)" if user_manual_price > 0 else " (行情現價)"
+                st.metric(f"未實現損益{price_source_label}", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
             with mc3:
                 st.metric(f"依成本停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
             with mc4:
                 st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
             
-            if latest_close <= my_sl_price:
-                st.error(f"【當下出場警示】目前最新價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
-            elif latest_close >= my_tp_price:
-                st.success(f"【當下出場警示】目前最新價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+            if effective_close <= my_sl_price:
+                st.error(f"【當下出場警示】目前參考現價 ({effective_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+            elif effective_close >= my_tp_price:
+                st.success(f"【當下出場警示】目前參考現價 ({effective_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
             else:
-                buffer_amt = latest_close - my_sl_price
+                buffer_amt = effective_close - my_sl_price
                 st.info(f"【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
         else:
             st.info("提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將會即時為您分析該檔股票的未實現損益與具體進出場建議！")
+
+        # 【新增】詳細時間點價格與變動明細表
+        with st.expander("🔍 檢視詳細時間點價格與變動明細表"):
+            st.markdown(f"以下為您列出最近選定頻率 ({interval}) 下的各個時間點價格變化紀錄：")
+            detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
+            detail_df['價格變動(元)'] = detail_df['Close'].diff()
+            detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
+            detail_df = detail_df.sort_index(ascending=False) # 最新時間排在最上方
+            st.dataframe(detail_df.style.format({
+                'Open': '{:.2f}',
+                'High': '{:.2f}',
+                'Low': '{:.2f}',
+                'Close': '{:.2f}',
+                'Volume': '{:,.0f}',
+                '價格變動(元)': '{:+.2f}',
+                '漲跌幅(%)': '{:+.2f}%'
+            }), use_container_width=True)
 
         # 當下技術面綜合操作指引
         st.markdown("---")
@@ -304,7 +325,7 @@ with tab1:
 
         box_func(f"### {action_title}\n{action_desc}")
     else:
-        st.error("找不到該股票代號或所選頻率與時間範圍不相容。若您選擇了 '1m' 分鐘線，請將時間範圍縮短至 7d（例如 5d 或 7d）。")
+        st.error("找不到該股票代號或所選頻率與時間範圍不相容。若您選擇了 '1m' 分鐘線，請將時間範圍縮短至 7d 以內。")
 
 with tab2:
     st.subheader("我的多檔持股總覽與資產配置診斷")
