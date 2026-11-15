@@ -50,7 +50,7 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 【帶回】個股專屬持倉評估輸入框
+# 個股專屬持倉評估輸入框
 st.sidebar.subheader("當前個股持倉評估")
 user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
@@ -81,8 +81,7 @@ def load_fundamentals(symbol):
             "pe_ratio": info.get("trailingPE", "N/A"),
             "div_yield": info.get("dividendYield", None),
             "market_cap": info.get("marketCap", "N/A"),
-            "sector": sector,
-            "current_price": info.get("currentPrice", info.get("regularMarketPrice", None))
+            "sector": sector
         }
     except:
         return None
@@ -217,9 +216,9 @@ with tab1:
             st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                       delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-        # ==================== 【帶回】個股專屬持倉績效與風控評估 ====================
+        # 個股專屬持倉績效與風控評估
         st.markdown("---")
-        st.subheader(f"🛡️ {stock_symbol.upper()} 個人持倉分析與進出場建議")
+        st.subheader(f"{stock_symbol.upper()} 個人持倉分析與進出場建議")
 
         latest_close = float(data['Close'].iloc[-1])
 
@@ -242,14 +241,14 @@ with tab1:
                 st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
             
             if latest_close <= my_sl_price:
-                st.error(f"🚨 【當下出場警示】目前股價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+                st.error(f"【當下出場警示】目前股價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
             elif latest_close >= my_tp_price:
-                st.success(f"🎯 【當下出場警示】目前股價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+                st.success(f"【當下出場警示】目前股價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
             else:
                 buffer_amt = latest_close - my_sl_price
-                st.info(f"🛡️ 【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
+                st.info(f"【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
         else:
-            st.info("💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將會即時為您分析該檔股票的未實現損益與具體進出場建議！")
+            st.info("提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將會即時為您分析該檔股票的未實現損益與具體進出場建議！")
 
         # 當下技術面綜合操作指引
         st.markdown("---")
@@ -282,7 +281,7 @@ with tab1:
         st.error("找不到該股票代號，請確認代號是否正確（台股請加 .TW）。")
 
 with tab2:
-    st.subheader("📋 我的多檔持股總覽與資產配置診斷")
+    st.subheader("我的多檔持股總覽與資產配置診斷")
     st.markdown("在此新增您名下的各個持股部位，App 將自動幫您計算總市值、總未實現損益，並提供全面診斷！")
 
     # 新增持股表單
@@ -295,7 +294,7 @@ with tab2:
         with col_f3:
             new_cost = st.number_input("平均買價", value=500.0, step=0.5)
         
-        submitted = st.form_submit_button("➕ 新增至我的持股清單")
+        submitted = st.form_submit_button("新增至我的持股清單")
         if submitted:
             st.session_state.portfolio.append({
                 "symbol": new_sym.upper(),
@@ -349,7 +348,7 @@ with tab2:
         total_pnl_pct = (total_pnl / total_cost_value * 100) if total_cost_value > 0 else 0
 
         st.markdown("---")
-        st.subheader("💰 整體資產總結")
+        st.subheader("整體資產總結")
         pc1, pc2, pc3 = st.columns(3)
         with pc1:
             st.metric("總投資成本", f"{total_cost_value:,.2f} 元")
@@ -358,19 +357,8 @@ with tab2:
         with pc3:
             st.metric("總未實現損益", f"{total_pnl:+,.2f} 元", delta=f"{total_pnl_pct:.2f}%", delta_color="normal" if total_pnl >= 0 else "inverse")
 
-        if st.button("🗑️ 清空所有持股紀錄"):
+        if st.button("清空所有持股紀錄"):
             st.session_state.portfolio = []
             st.rerun()
     else:
         st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
-# 【修正】改用更即時的最新價抓取方式
-            try:
-                ticker_obj = yf.Ticker(sym)
-                # 嘗試取得最新成交價
-                curr_p = ticker_obj.fast_info.get('last_price', None)
-                if not curr_p:
-                    # 若無法取得，退回抓最近一天的收盤價
-                    t_df = ticker_obj.history(period="1d")
-                    curr_p = float(t_df['Close'].iloc[-1])
-            except:
-                curr_p = cst  # 若皆失敗則暫用成本替代
