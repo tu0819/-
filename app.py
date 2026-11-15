@@ -23,9 +23,9 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 【新增】個人持倉成本輸入
+# 個人持倉成本輸入
 st.sidebar.subheader("個人持倉評估")
-user_cost = st.sidebar.number_input("輸入您的平均買價 (若無持倉可填 0)", value=0.0, step=0.1)
+user_cost = st.sidebar.number_input("輸入您的平均買價 (若無持倉請填 0)", value=0.0, step=0.1)
 
 # ==================== 資料載入與處理 ====================
 @st.cache_data
@@ -192,16 +192,42 @@ if not data.empty:
         st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                   delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-    # ==================== 當下進出場綜合建議與個人持倉評估 ====================
+    # ==================== 【常駐顯示】個人持倉評估與績效看板 ====================
+    st.markdown("---")
+    st.subheader("個人持倉績效與風控評估")
+
+    latest_close = float(data['Close'].iloc[-1])
+
+    if user_cost > 0:
+        my_return = (latest_close - user_cost) / user_cost * 100
+        my_sl_price = user_cost * (1 - sl_pct / 100)
+        my_tp_price = user_cost * (1 + tp_pct / 100)
+
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        with mc1:
+            st.metric("您的平均買價", f"{user_cost:.2f}")
+        with mc2:
+            st.metric("目前未實現報酬率", f"{my_return:.2f}%", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
+        with mc3:
+            st.metric(f"依成本計算之停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
+        with mc4:
+            st.metric(f"依成本計算之停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
+        
+        if latest_close <= my_sl_price:
+            st.error("警示：目前股價已經觸及您設定的停損價位，建議果斷執行紀律停損！")
+        elif latest_close >= my_tp_price:
+            st.success("恭喜：目前股價已達成您設定的停利目標，可考慮分批獲利了結！")
+    else:
+        st.info("提示：您目前尚未在左側側邊欄輸入平均買價。輸入後這裡將會即時顯示您的未實現損益與專屬停損/停利價位！")
+
+    # ==================== 當下進出場綜合建議與操作指引 ====================
     st.markdown("---")
     st.subheader("當下進出場綜合建議與操作指引")
 
-    latest_close = float(data['Close'].iloc[-1])
     latest_sma5 = float(data['SMA_5'].iloc[-1])
     latest_sma20 = float(data['SMA_20'].iloc[-1])
     latest_rsi = float(data['RSI'].iloc[-1])
 
-    # 綜合評判邏輯
     if latest_sma5 > latest_sma20:
         if latest_rsi > 70:
             action_title = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
@@ -223,7 +249,16 @@ if not data.empty:
 
     box_func(f"### {action_title}\n{action_desc}")
 
-    # 如果有輸入自訂買價，顯示個人持倉專屬評估
-    if user_cost > 0:
-        my_return = (latest_close - user_cost) / user_cost * 100
-        my_sl_price = user_cost * (1 - sl_pct / 100)
+    ref_sl_price = latest_close * (1 - sl_pct / 100)
+    ref_tp_price = latest_close * (1 + tp_pct / 100)
+
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        st.metric("最新收盤參考價", f"{latest_close:.2f}")
+    with col_y:
+        st.metric(f"參考停損價位 (-{sl_pct}%)", f"{ref_sl_price:.2f}", delta=f"-{sl_pct}%", delta_color="inverse")
+    with col_z:
+        st.metric(f"參考停利價位 (+{tp_pct}%)", f"{ref_tp_price:.2f}", delta=f"+{tp_pct}%")
+
+else:
+    st.error("找不到該股票代號，請確認代號是否正確（台股請加 .TW，例如 0050.TW）。")
