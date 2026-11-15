@@ -23,9 +23,10 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 個人持倉成本輸入
+# 【新增】個人持倉成本與股數輸入
 st.sidebar.subheader("個人持倉評估")
 user_cost = st.sidebar.number_input("輸入您的平均買價 (若無持倉請填 0)", value=0.0, step=0.1)
+user_shares = st.sidebar.number_input("輸入您的持有股數 (若無持倉請填 0)", value=0.0, step=100.0)
 
 # ==================== 資料載入與處理 ====================
 @st.cache_data
@@ -192,33 +193,38 @@ if not data.empty:
         st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                   delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-    # ==================== 【常駐顯示】個人持倉評估與績效看板 ====================
+    # ==================== 個人持倉績效與風控評估 (常駐顯示) ====================
     st.markdown("---")
     st.subheader("個人持倉績效與風控評估")
 
     latest_close = float(data['Close'].iloc[-1])
 
-    if user_cost > 0:
+    if user_cost > 0 and user_shares > 0:
+        total_cost = user_cost * user_shares
+        market_value = latest_close * user_shares
+        pnl_amount = market_value - total_cost
         my_return = (latest_close - user_cost) / user_cost * 100
         my_sl_price = user_cost * (1 - sl_pct / 100)
         my_tp_price = user_cost * (1 + tp_pct / 100)
 
         mc1, mc2, mc3, mc4 = st.columns(4)
         with mc1:
-            st.metric("您的平均買價", f"{user_cost:.2f}")
+            st.metric("持倉總市值 / 總成本", f"{market_value:,.0f} / {total_cost:,.0f}")
         with mc2:
-            st.metric("目前未實現報酬率", f"{my_return:.2f}%", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
+            st.metric("未實現損益 (金額 / %)", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
         with mc3:
-            st.metric(f"依成本計算之停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
+            st.metric(f"依成本停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
         with mc4:
-            st.metric(f"依成本計算之停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
+            st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
         
         if latest_close <= my_sl_price:
-            st.error("警示：目前股價已經觸及您設定的停損價位，建議果斷執行紀律停損！")
+            st.error(f"警示：目前股價 ({latest_close:.2f}) 已觸及您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損，控制風險。")
         elif latest_close >= my_tp_price:
-            st.success("恭喜：目前股價已達成您設定的停利目標，可考慮分批獲利了結！")
+            st.success(f"恭喜：目前股價 ({latest_close:.2f}) 已達成您的停利目標 ({my_tp_price:.2f})！可考慮獲利了結或逢高出清部分持股。")
+        else:
+            st.info(f"持倉運行中：目前未觸及停損/停利防線。距離停損還有 {(latest_close - my_sl_price):.2f} 元的緩衝空間。")
     else:
-        st.info("提示：您目前尚未在左側側邊欄輸入平均買價。輸入後這裡將會即時顯示您的未實現損益與專屬停損/停利價位！")
+        st.info("提示：請在左側側邊欄完整輸入您的「平均買價」與「持有股數」。輸入後這裡將即時計算您的總市值、未實現損益金額與專屬風控建議！")
 
     # ==================== 當下進出場綜合建議與操作指引 ====================
     st.markdown("---")
