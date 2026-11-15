@@ -15,7 +15,6 @@ if 'watchlist' not in st.session_state:
     st.session_state.watchlist = ["0050.TW", "2330.TW", "2317.TW"]
 
 if 'portfolio' not in st.session_state:
-    # 預設範例持股：[{'symbol': '2330.TW', 'shares': 1000, 'cost': 550.0}]
     st.session_state.portfolio = []
 
 # ==================== 側邊欄設定 ====================
@@ -25,11 +24,9 @@ st.sidebar.header("參數與導航面板")
 st.sidebar.subheader("我的收藏清單 (Watchlist)")
 selected_fav = st.sidebar.selectbox("快速載入收藏股票", ["-- 選擇收藏股票 --"] + st.session_state.watchlist)
 
-# 決定預設輸入框的值
 default_symbol = selected_fav if selected_fav != "-- 選擇收藏股票 --" else "0050.TW"
 stock_symbol = st.sidebar.text_input("輸入或修改股票代號 (台股加 .TW)", value=default_symbol)
 
-# 加入/移除收藏按鈕
 col_fav1, col_fav2 = st.sidebar.columns(2)
 with col_fav1:
     if st.button("加入收藏"):
@@ -52,6 +49,11 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
+
+# 【帶回】個股專屬持倉評估輸入框
+st.sidebar.subheader("當前個股持倉評估")
+user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
+user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
 
 # ==================== 資料載入與處理 ====================
 @st.cache_data
@@ -89,7 +91,7 @@ data, bench_data = load_data(stock_symbol, benchmark_symbol, period)
 fund_info = load_fundamentals(stock_symbol)
 
 # ==================== 主畫面分頁籤設計 ====================
-tab1, tab2 = st.tabs(["個股深度分析與回測", "我的多檔持股總覽與資產診斷"])
+tab1, tab2 = st.tabs(["個股深度分析與持倉建議", "我的多檔持股總覽與資產診斷"])
 
 with tab1:
     if not data.empty:
@@ -215,10 +217,43 @@ with tab1:
             st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                       delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-        # 當下操作建議
+        # ==================== 【帶回】個股專屬持倉績效與風控評估 ====================
         st.markdown("---")
-        st.subheader("當下進出場綜合建議與操作指引")
+        st.subheader(f"🛡️ {stock_symbol.upper()} 個人持倉分析與進出場建議")
+
         latest_close = float(data['Close'].iloc[-1])
+
+        if user_cost > 0 and user_shares > 0:
+            total_cost = user_cost * user_shares
+            market_value = latest_close * user_shares
+            pnl_amount = market_value - total_cost
+            my_return = (latest_close - user_cost) / user_cost * 100
+            my_sl_price = user_cost * (1 - sl_pct / 100)
+            my_tp_price = user_cost * (1 + tp_pct / 100)
+
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            with mc1:
+                st.metric("持倉總市值 / 總成本", f"{market_value:,.0f} / {total_cost:,.0f}")
+            with mc2:
+                st.metric("未實現損益 (金額 / %)", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
+            with mc3:
+                st.metric(f"依成本停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
+            with mc4:
+                st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
+            
+            if latest_close <= my_sl_price:
+                st.error(f"🚨 【當下出場警示】目前股價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+            elif latest_close >= my_tp_price:
+                st.success(f"🎯 【當下出場警示】目前股價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+            else:
+                buffer_amt = latest_close - my_sl_price
+                st.info(f"🛡️ 【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
+        else:
+            st.info("💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將會即時為您分析該檔股票的未實現損益與具體進出場建議！")
+
+        # 當下技術面綜合操作指引
+        st.markdown("---")
+        st.subheader("當下技術面綜合操作指引")
         latest_sma5 = float(data['SMA_5'].iloc[-1])
         latest_sma20 = float(data['SMA_20'].iloc[-1])
         latest_rsi = float(data['RSI'].iloc[-1])
@@ -281,14 +316,13 @@ with tab2:
             shs = item['shares']
             cst = item['cost']
             
-            # 即時抓取最新價格
             try:
                 t_df = yf.download(sym, period="5d")
                 if isinstance(t_df.columns, pd.MultiIndex):
                     t_df.columns = t_df.columns.get_level_values(0)
                 curr_p = float(t_df['Close'].iloc[-1])
             except:
-                curr_p = cst  # 若抓不到用成本替代
+                curr_p = cst
 
             m_val = curr_p * shs
             c_val = cst * shs
@@ -311,7 +345,6 @@ with tab2:
         pf_df = pd.DataFrame(portfolio_data)
         st.dataframe(pf_df, use_container_width=True)
 
-        # 總資產看板
         total_pnl = total_market_value - total_cost_value
         total_pnl_pct = (total_pnl / total_cost_value * 100) if total_cost_value > 0 else 0
 
@@ -325,7 +358,6 @@ with tab2:
         with pc3:
             st.metric("總未實現損益", f"{total_pnl:+,.2f} 元", delta=f"{total_pnl_pct:.2f}%", delta_color="normal" if total_pnl >= 0 else "inverse")
 
-        # 清空按鈕
         if st.button("🗑️ 清空所有持股紀錄"):
             st.session_state.portfolio = []
             st.rerun()
