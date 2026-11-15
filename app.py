@@ -8,7 +8,13 @@ st.title("📈 智慧股票分析與期望值計算 App")
 
 st.sidebar.header("設定參數")
 stock_symbol = st.sidebar.text_input("輸入股票代號", value="2330.TW")
-period = st.sidebar.selectbox("選擇時間範圍", ["1y", "2y", "5y", "10y"], index=1)
+
+# 這裡擴充了時間選項：從短期的 1個月 到長期的 10年與全部歷史 (max)
+period = st.sidebar.selectbox(
+    "選擇時間範圍", 
+    ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"], 
+    index=3  # 預設選 1y
+)
 
 @st.cache_data
 def load_data(symbol, time_period):
@@ -61,13 +67,12 @@ if not data.empty:
         losing_trades = trades_df[trades_df < 0]
         
         total_trades = len(trades_df)
-        win_rate = len(winning_trades) / total_trades
+        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
         loss_rate = 1 - win_rate
         
         avg_win = winning_trades.mean() if len(winning_trades) > 0 else 0
         avg_loss = abs(losing_trades.mean()) if len(losing_trades) > 0 else 0
         
-        # 計算數學期望值 (每筆交易平均報酬率期望值)
         expected_value = (win_rate * avg_win) - (loss_rate * avg_loss)
     else:
         total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
