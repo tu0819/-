@@ -5,14 +5,21 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# 嘗試匯入 FinMind
+try:
+    from FinMind.data import DataLoader
+    finmind_available = True
+except ImportError:
+    finmind_available = False
+
 # 設定網頁標題與寬度
 st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide")
 
-st.title("專業級智慧股票與量化資產管理平台")
+st.title("專業級智慧股票與量化資產管理平台 (台股官方數據源強化版)")
 
-# ==================== 初始化 Session State (記憶收藏與持股) ====================
+# ==================== 初始化 Session State ====================
 if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = ["0050.TW", "2330.TW", "2317.TW"]
+    st.session_state.watchlist = ["0050.TW", "2330.TW", "2317.TW", "009816.TW"]
 
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = []
@@ -41,26 +48,7 @@ with col_fav2:
 
 st.sidebar.markdown("---")
 benchmark_symbol = st.sidebar.text_input("大盤對標代號", value="^TWII")
-period = st.sidebar.selectbox("選擇回測時間範圍", ["1d", "5d", "7d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=3)
-
-# 資料細緻度選擇
-interval = st.sidebar.selectbox(
-    "選擇資料頻率 (細緻度)", 
-    ["1d", "1h", "30m", "15m", "5m", "1m"], 
-    index=0,
-    help="Yahoo限制：1m僅支援7天內；1h/30m/15m/5m支援60天內。若選擇不相容會自動幫您調整。"
-)
-
-# 防呆機制：自動檢查 Yahoo API 限制
-if interval == "1m" and period not in ["1d", "5d", "7d"]:
-    st.sidebar.warning("⚠️ 提醒：1分鐘線(1m)最多只能查詢 7 天內，已自動將時間範圍調為 7d。")
-    period = "7d"
-elif interval in ["1h", "30m", "15m", "5m"] and period in ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]:
-    st.sidebar.warning(f"⚠️ 提醒：{interval} 頻率最多支援 60 天內，已自動將時間範圍調為適當區間。")
-    if period in ["1mo"]:
-        pass
-    else:
-        period = "1mo"
+period = st.sidebar.selectbox("選擇回測時間範圍", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=1)
 
 st.sidebar.subheader("停損與停利設定")
 enable_sl = st.sidebar.checkbox("啟用停損機制 (Stop-Loss)", value=True)
@@ -73,70 +61,74 @@ tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 st.sidebar.subheader("當前個股持倉與現價校正")
 user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
-user_manual_price = st.sidebar.number_input("手動覆蓋現價 (若填 0 則自動抓取市場行情)", value=0.0, step=0.05, help="若想與券商App數字完全一致，可在此填入當下券商現價")
+user_manual_price = st.sidebar.number_input(
+    "手動覆蓋現價 (若填 0 則自動抓取行情)", 
+    value=0.0, 
+    step=0.01, 
+    help="💡 秘訣：若想與台新 Woojii 完全一致，可在此輸入券商 App 當下的現價！"
+)
 
-# ==================== 資料載入與處理 ====================
+# ==================== 資料載入函數 (優先使用 FinMind 抓取台股) ====================
 @st.cache_data
-def load_data(symbol, bench_symbol, time_period, data_interval):
-    try:
-        df = yf.download(symbol, period=time_period, interval=data_interval)
-        bench = yf.download(bench_symbol, period=time_period, interval=data_interval)
-    except:
-        df = yf.download(symbol, period=time_period)
-        bench = yf.download(bench_symbol, period=time_period)
+def load_stock_data(symbol, time_period):
+    df = pd.DataFrame()
+    clean_sym = symbol.replace(".TW", "").replace(".TWO", "")
     
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    if isinstance(bench.columns, pd.MultiIndex):
-        bench.columns = bench.columns.get_level_values(0)
-        
-    return df, bench
+    # 決定起始日期
+    start_map = {"1mo": "30 days ago", "3mo": "90 days ago", "6mo": "180 days ago", "1y": "365 days ago", "2y": "730 days ago", "5y": "1825 days ago", "max": "2015-01-01"}
+    s_date = pd.Timestamp.now() - pd.DateOffset(months=3)
+    if time_period == "1mo": s_date = pd.Timestamp.now() - pd.DateOffset(months=1)
+    elif time_period == "6mo": s_date = pd.Timestamp.now() - pd.DateOffset(months=6)
+    elif time_period == "1y": s_date = pd.Timestamp.now() - pd.DateOffset(years=1)
+    elif time_period == "2y": s_date = pd.Timestamp.now() - pd.DateOffset(years=2)
+    elif time_period == "5y": s_date = pd.Timestamp.now() - pd.DateOffset(years=5)
+    elif time_period == "max": s_date = pd.Timestamp("2018-01-01")
+    
+    start_str = s_date.strftime("%Y-%m-%d")
+
+    # 嘗試用 FinMind 抓取台股官方資料
+    if finmind_available and (".TW" in symbol.upper() or ".TWO" in symbol.upper() or clean_sym.isdigit()):
+        try:
+            api = DataLoader()
+            df = api.taiwan_stock_daily(stock_id=clean_sym, start_date=start_str)
+            if df is not None and not df.empty:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'trading_volume': 'Volume'}, inplace=True)
+                df = df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+        except:
+            df = pd.DataFrame()
+
+    # 若 FinMind 失敗或非台股，改用 yfinance
+    if df.empty:
+        try:
+            df = yf.download(symbol, period=time_period)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+        except:
+            df = pd.DataFrame()
+
+    return df
 
 @st.cache_data
-def load_fundamentals(symbol):
+def load_benchmark(bench_symbol, time_period):
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        sector = info.get("sector", None)
-        if not sector:
-            sector = "指數股票型基金 (ETF)"
-        return {
-            "name": info.get("longName", symbol),
-            "pe_ratio": info.get("trailingPE", "N/A"),
-            "div_yield": info.get("dividendYield", None),
-            "market_cap": info.get("marketCap", "N/A"),
-            "sector": sector
-        }
+        bench = yf.download(bench_symbol, period=time_period)
+        if isinstance(bench.columns, pd.MultiIndex):
+            bench.columns = bench.columns.get_level_values(0)
+        return bench
     except:
-        return None
+        return pd.DataFrame()
 
-data, bench_data = load_data(stock_symbol, benchmark_symbol, period, interval)
-fund_info = load_fundamentals(stock_symbol)
+data = load_stock_data(stock_symbol, period)
+bench_data = load_benchmark(benchmark_symbol, period)
 
 # ==================== 主畫面分頁籤設計 ====================
 tab1, tab2 = st.tabs(["個股深度分析與持倉建議", "我的多檔持股總覽與資產診斷"])
 
 with tab1:
     if not data.empty and len(data) > 0:
-        if fund_info:
-            st.subheader(f"{fund_info['name']} ({stock_symbol.upper()}) 基本面與基金概況")
-            f1, f2, f3, f4 = st.columns(4)
-            with f1:
-                st.metric("類型 / 產業", fund_info['sector'])
-            with f2:
-                pe = f"{fund_info['pe_ratio']:.2f}" if isinstance(fund_info['pe_ratio'], (int, float)) else "資料未提供"
-                st.metric("本益比 (P/E)", pe)
-            with f3:
-                dy_val = fund_info['div_yield']
-                if dy_val is not None and isinstance(dy_val, (int, float)):
-                    dy_str = f"{dy_val:.2f}%" if dy_val > 1 else f"{dy_val * 100:.2f}%"
-                else:
-                    dy_str = "依當年度配息而定"
-                st.metric("預估殖利率", dy_str)
-            with f4:
-                mc = f"{fund_info['market_cap'] / 1e9:,.2f} 億" if isinstance(fund_info['market_cap'], (int, float)) else "N/A"
-                st.metric("市值 / 規模", mc)
-            st.markdown("---")
+        st.subheader(f"📊 {stock_symbol.upper()} 官方技術分析與進出場訊號圖")
 
         # 技術指標與回測計算
         window_len = min(5, len(data))
@@ -201,7 +193,6 @@ with tab1:
             total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
         # 圖表繪製
-        st.subheader(f"{stock_symbol.upper()} 多時間點技術分析與進出場訊號圖 (頻率: {interval})")
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
                             row_heights=[0.6, 0.2, 0.2],
@@ -231,7 +222,7 @@ with tab1:
         st.plotly_chart(fig, use_container_width=True)
 
         # 策略績效看板
-        st.subheader("量化回測表現與每筆交易期望值 (EV)")
+        st.subheader("🎯 量化回測表現與每筆交易期望值 (EV)")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.metric("總回測交易次數", f"{total_trades} 次")
@@ -243,12 +234,11 @@ with tab1:
             st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                       delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-        # 個股專屬持倉績效與風控評估（支援手動現價覆蓋）
+        # 個股專屬持倉績效與風控評估
         st.markdown("---")
-        st.subheader(f"{stock_symbol.upper()} 個人持倉分析與進出場建議")
+        st.subheader(f"🛡️ {stock_symbol.upper()} 個人持倉分析與進出場建議")
 
         market_latest_close = float(data['Close'].iloc[-1])
-        # 決定最終使用的現價：若用戶有手動輸入現價則優先採用，否則用自動抓取的行情價
         effective_close = user_manual_price if user_manual_price > 0 else market_latest_close
 
         if user_cost > 0 and user_shares > 0:
@@ -263,7 +253,7 @@ with tab1:
             with mc1:
                 st.metric("持倉總市值 / 總成本", f"{market_value:,.0f} / {total_cost:,.0f}")
             with mc2:
-                price_source_label = " (手動現價)" if user_manual_price > 0 else " (行情現價)"
+                price_source_label = " (手動校正價)" if user_manual_price > 0 else " (官方收盤價)"
                 st.metric(f"未實現損益{price_source_label}", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if my_return >= 0 else "inverse")
             with mc3:
                 st.metric(f"依成本停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
@@ -271,22 +261,22 @@ with tab1:
                 st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
             
             if effective_close <= my_sl_price:
-                st.error(f"【當下出場警示】目前參考現價 ({effective_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+                st.error(f"🚨 【當下出場警示】目前參考價 ({effective_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
             elif effective_close >= my_tp_price:
-                st.success(f"【當下出場警示】目前參考現價 ({effective_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+                st.success(f"🎯 【當下出場警示】目前參考價 ({effective_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
             else:
                 buffer_amt = effective_close - my_sl_price
-                st.info(f"【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
+                st.info(f"🛡️ 【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
         else:
-            st.info("提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將會即時為您分析該檔股票的未實現損益與具體進出場建議！")
+            st.info("💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將即時為您分析該檔股票的未實現損益！")
 
-        # 【新增】詳細時間點價格與變動明細表
-        with st.expander("🔍 檢視詳細時間點價格與變動明細表"):
-            st.markdown(f"以下為您列出最近選定頻率 ({interval}) 下的各個時間點價格變化紀錄：")
+        # 詳細時間點價格與變動明細表
+        with st.expander("🔍 檢視詳細歷史價格與變動明細表"):
+            st.markdown("以下為您列出各個交易日的詳細官方行情與漲跌變動：")
             detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
             detail_df['價格變動(元)'] = detail_df['Close'].diff()
             detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
-            detail_df = detail_df.sort_index(ascending=False) # 最新時間排在最上方
+            detail_df = detail_df.sort_index(ascending=False)
             st.dataframe(detail_df.style.format({
                 'Open': '{:.2f}',
                 'High': '{:.2f}',
@@ -297,9 +287,8 @@ with tab1:
                 '漲跌幅(%)': '{:+.2f}%'
             }), use_container_width=True)
 
-        # 當下技術面綜合操作指引
         st.markdown("---")
-        st.subheader("當下技術面綜合操作指引")
+        st.subheader("🤖 當下技術面綜合操作指引")
         latest_sma5 = float(data['SMA_5'].iloc[-1])
         latest_sma20 = float(data['SMA_20'].iloc[-1])
         latest_rsi = float(data['RSI'].iloc[-1])
@@ -325,13 +314,12 @@ with tab1:
 
         box_func(f"### {action_title}\n{action_desc}")
     else:
-        st.error("找不到該股票代號或所選頻率與時間範圍不相容。若您選擇了 '1m' 分鐘線，請將時間範圍縮短至 7d 以內。")
+        st.error("找不到該股票代號的官方歷史資料，請確認代號是否正確（台股請加 .TW，例如 009816.TW）。")
 
 with tab2:
-    st.subheader("我的多檔持股總覽與資產配置診斷")
-    st.markdown("在此新增您名下的各個持股部位，App 將自動串接最新行情幫您計算總市值、總未實現損益，並提供全面診斷！")
+    st.subheader("📋 我的多檔持股總覽與資產配置診斷")
+    st.markdown("在此新增您名下的各個持股部位，App 將自動幫您計算總市值、總未實現損益，並提供全面診斷！")
 
-    # 新增持股表單
     with st.form("add_holding_form"):
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
@@ -341,7 +329,7 @@ with tab2:
         with col_f3:
             new_cost = st.number_input("平均買價", value=500.0, step=0.5)
         
-        submitted = st.form_submit_button("新增至我的持股清單")
+        submitted = st.form_submit_button("➕ 新增至我的持股清單")
         if submitted:
             st.session_state.portfolio.append({
                 "symbol": new_sym.upper(),
@@ -350,7 +338,6 @@ with tab2:
             })
             st.success(f"成功新增 {new_sym.upper()}！")
 
-    # 顯示目前持股列表與總計
     if len(st.session_state.portfolio) > 0:
         st.markdown("### 目前持股明細")
         portfolio_data = []
@@ -362,12 +349,10 @@ with tab2:
             shs = item['shares']
             cst = item['cost']
             
+            # 取得最新現價
             try:
-                t_obj = yf.Ticker(sym)
-                curr_p = t_obj.fast_info.get('last_price', None)
-                if not curr_p:
-                    t_df = t_obj.history(period="1d")
-                    curr_p = float(t_df['Close'].iloc[-1])
+                t_df = load_stock_data(sym, "1mo")
+                curr_p = float(t_df['Close'].iloc[-1]) if not t_df.empty else cst
             except:
                 curr_p = cst
 
@@ -396,7 +381,7 @@ with tab2:
         total_pnl_pct = (total_pnl / total_cost_value * 100) if total_cost_value > 0 else 0
 
         st.markdown("---")
-        st.subheader("整體資產總結")
+        st.subheader("💰 整體資產總結")
         pc1, pc2, pc3 = st.columns(3)
         with pc1:
             st.metric("總投資成本", f"{total_cost_value:,.2f} 元")
@@ -405,7 +390,7 @@ with tab2:
         with pc3:
             st.metric("總未實現損益", f"{total_pnl:+,.2f} 元", delta=f"{total_pnl_pct:.2f}%", delta_color="normal" if total_pnl >= 0 else "inverse")
 
-        if st.button("清空所有持股紀錄"):
+        if st.button("🗑️ 清空所有持股紀錄"):
             st.session_state.portfolio = []
             st.rerun()
     else:
