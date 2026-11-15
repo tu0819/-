@@ -4,16 +4,11 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from streamlit_autorefresh import st_autorefresh
 
 # 設定網頁標題與寬度
 st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide")
 
-# 【新增】自動重新整理設定（間隔 30 秒 = 30000 毫秒）
-# 這樣網頁就會自動在背景重新整理，讓數據保持最新狀態
-count = st_autorefresh(interval=30000, limit=None, key="stock_auto_refresh_counter")
-
-st.title("專業級智慧股票與量化資產管理平台 (自動更新版)")
+st.title("專業級智慧股票與量化資產管理平台 (高效穩定版)")
 
 # ==================== 初始化 Session State ====================
 if 'watchlist' not in st.session_state:
@@ -25,8 +20,13 @@ if 'portfolio' not in st.session_state:
 # ==================== 側邊欄設定 ====================
 st.sidebar.header("參數與導航面板")
 
-# 顯示目前的自動更新狀態
-st.sidebar.success(f"🔄 自動更新啟用中 (已重新整理 {count} 次)")
+# 【新增】一鍵重新整理按鈕（清除快取並重新載入最新資料）
+if st.sidebar.button("🔄 立即重新整理最新行情"):
+    st.cache_data.clear()
+    st.success("已清除快取並更新最新行情！")
+    st.rerun()
+
+st.sidebar.markdown("---")
 
 selected_fav = st.sidebar.selectbox("快速載入收藏股票", ["-- 選擇收藏股票 --"] + st.session_state.watchlist)
 default_symbol = selected_fav if selected_fav != "-- 選擇收藏股票 --" else "0050.TW"
