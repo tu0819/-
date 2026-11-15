@@ -41,15 +41,26 @@ with col_fav2:
 
 st.sidebar.markdown("---")
 benchmark_symbol = st.sidebar.text_input("大盤對標代號", value="^TWII")
-period = st.sidebar.selectbox("選擇回測時間範圍", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=3)
+period = st.sidebar.selectbox("選擇回測時間範圍", ["1d", "5d", "7d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=3)
 
-# 【新增】資料細緻度（時間頻率）選擇
+# 資料細緻度選擇
 interval = st.sidebar.selectbox(
     "選擇資料頻率 (細緻度)", 
     ["1d", "1h", "30m", "15m", "5m", "1m"], 
     index=0,
-    help="注意：1m分鐘線僅支援最近7天內；5m/15m/1h支援最近60天內。若選擇過長期間搭配短頻率會自動適應。"
+    help="Yahoo限制：1m僅支援7天內；1h/30m/15m/5m支援60天內。若選擇不相容會自動幫您調整。"
 )
+
+# 【防呆機制】自動檢查 Yahoo API 限制
+if interval == "1m" and period not in ["1d", "5d", "7d"]:
+    st.sidebar.warning("⚠️ 提醒：1分鐘線(1m)最多只能查詢 7 天內，已自動將時間範圍調為 7d。")
+    period = "7d"
+elif interval in ["1h", "30m", "15m", "5m"] and period in ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]:
+    st.sidebar.warning(f"⚠️ 提醒：{interval} 頻率最多支援 60 天內，已自動將時間範圍調為 60d 以內可用的範圍。")
+    if period in ["1mo"]:
+        pass # 1個月大致在60天內，勉強可過
+    else:
+        period = "1mo"
 
 st.sidebar.subheader("停損與停利設定")
 enable_sl = st.sidebar.checkbox("啟用停損機制 (Stop-Loss)", value=True)
@@ -63,14 +74,13 @@ st.sidebar.subheader("當前個股持倉評估")
 user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
 
-# ==================== 資料載入與處理（支援自訂頻率與防呆） ====================
+# ==================== 資料載入與處理 ====================
 @st.cache_data
 def load_data(symbol, bench_symbol, time_period, data_interval):
     try:
         df = yf.download(symbol, period=time_period, interval=data_interval)
         bench = yf.download(bench_symbol, period=time_period, interval=data_interval)
     except:
-        # 若組合不支援自動降級為預設日線
         df = yf.download(symbol, period=time_period)
         bench = yf.download(bench_symbol, period=time_period)
     
@@ -294,7 +304,7 @@ with tab1:
 
         box_func(f"### {action_title}\n{action_desc}")
     else:
-        st.error("找不到該股票代號或所選頻率與時間範圍不相容，請確認代號是否正確（台股請加 .TW）或更換時間頻率。")
+        st.error("找不到該股票代號或所選頻率與時間範圍不相容。若您選擇了 '1m' 分鐘線，請將時間範圍縮短至 7d（例如 5d 或 7d）。")
 
 with tab2:
     st.subheader("我的多檔持股總覽與資產配置診斷")
@@ -378,4 +388,4 @@ with tab2:
             st.session_state.portfolio = []
             st.rerun()
     else:
-        st.info("print('目前尚無持股紀錄')：請透過上方表格新增您的股票部位。")
+        st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
