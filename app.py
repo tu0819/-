@@ -8,15 +8,15 @@ from plotly.subplots import make_subplots
 # 設定網頁標題與寬度
 st.set_page_config(page_title="專業級智慧股票分析 App", layout="wide")
 
-st.title("📈 專業級智慧股票與量化回測分析平台")
+st.title("專業級智慧股票與量化回測分析平台")
 
 # ==================== 側邊欄設定 ====================
-st.sidebar.header("⚙️ 參數設定面板")
+st.sidebar.header("參數設定面板")
 stock_symbol = st.sidebar.text_input("輸入股票代號 (台股加 .TW，如 2330.TW 或 0050.TW)", value="0050.TW")
 benchmark_symbol = st.sidebar.text_input("輸入大盤對標代號", value="^TWII") # 台股加權指數
 period = st.sidebar.selectbox("選擇回測時間範圍", ["3mo", "6mo", "1y", "2y", "5y", "max"], index=2)
 
-st.sidebar.subheader("🛡️ 停損與停利設定")
+st.sidebar.subheader("停損與停利設定")
 enable_sl = st.sidebar.checkbox("啟用停損機制 (Stop-Loss)", value=True)
 sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 
@@ -60,7 +60,7 @@ fund_info = load_fundamentals(stock_symbol)
 if not data.empty:
     # ==================== 基本面資訊展示 ====================
     if fund_info:
-        st.subheader(f"🏢 {fund_info['name']} ({stock_symbol.upper()}) 基本面與基金概況")
+        st.subheader(f"{fund_info['name']} ({stock_symbol.upper()}) 基本面與基金概況")
         f1, f2, f3, f4 = st.columns(4)
         with f1:
             st.metric("類型 / 產業", fund_info['sector'])
@@ -144,12 +144,12 @@ if not data.empty:
         total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
     # ==================== 繪製圖表 ====================
-    st.subheader(f"📊 {stock_symbol.upper()} 多功能技術分析與進出場訊號圖")
+    st.subheader(f"{stock_symbol.upper()} 多功能技術分析與進出場訊號圖")
     
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.03, 
                         row_heights=[0.6, 0.2, 0.2],
-                        subplot_titles=(f"價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
+                        subplot_titles=("價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
     
     fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='black', width=1.5)), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='5日線', line=dict(color='orange', width=1)), row=1, col=1)
@@ -175,7 +175,7 @@ if not data.empty:
     st.plotly_chart(fig, use_container_width=True)
 
     # ==================== 策略期望值與表現看板 ====================
-    st.subheader("🎯 量化回測表現與每筆交易期望值 (EV)")
+    st.subheader("量化回測表現與每筆交易期望值 (EV)")
     
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -190,7 +190,7 @@ if not data.empty:
 
     # ==================== 當下進出場綜合建議看板 ====================
     st.markdown("---")
-    st.subheader("🤖 當下進出場綜合建議與操作指引")
+    st.subheader("當下進出場綜合建議與操作指引")
 
     latest_close = float(data['Close'].iloc[-1])
     latest_sma5 = float(data['SMA_5'].iloc[-1])
@@ -202,13 +202,32 @@ if not data.empty:
 
     if latest_sma5 > latest_sma20:
         if latest_rsi > 70:
-            action_title = "🟡 多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
+            action_title = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
             action_desc = "目前短均線大於長均線（多頭排列），但 RSI 指標已進入 70 以上超買區，短線有回檔壓力，不宜過度追高。"
             box_func = st.warning
         else:
-            action_title = "🟢 建議偏多操作 / 可考慮進場續抱"
+            action_title = "建議偏多操作 / 可考慮進場續抱"
             action_desc = "目前短均線大於長均線且 RSI 處於健康區間，符合多頭趨勢，歷史統計與技術結構具備正面優勢。"
             box_func = st.success
     else:
         if latest_rsi < 30:
-            action_title = "🔵 空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）"
+            action_title = "空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）"
+            action_desc = "目前均線雖屬空頭，但 RSI 已跌破 30 進入超賣區，可能出現跌深反彈，適合風險承受度較高者嘗試。"
+            box_func = st.info
+        else:
+            action_title = "建議空手觀望 / 暫時避險"
+            action_desc = "目前短均線小於長均線（空頭排列），且 RSI 處於中性偏弱區間，趨勢向下，建議耐心等待黃金交叉。"
+            box_func = st.error
+
+    box_func(f"### {action_title}\n{action_desc}")
+
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        st.metric("最新收盤參考價", f"{latest_close:.2f}")
+    with col_y:
+        st.metric(f"參考停損價位 (-{sl_pct}%)", f"{ref_sl_price:.2f}", delta=f"-{sl_pct}%", delta_color="inverse")
+    with col_z:
+        st.metric(f"參考停利價位 (+{tp_pct}%)", f"{ref_tp_price:.2f}", delta=f"+{tp_pct}%")
+
+else:
+    st.error("找不到該股票代號，請確認代號是否正確（台股請加 .TW，例如 0050.TW）。")
