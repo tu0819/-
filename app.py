@@ -176,4 +176,14 @@ with tab1:
             
         trades_df = pd.Series(trades) if len(trades) > 0 else pd.Series()
         
-        if not
+        if not trades_df.empty:
+            winning = trades_df[trades_df > 0]
+            losing = trades_df[trades_df < 0]
+            total_trades = len(trades_df)
+            win_rate = len(winning) / total_trades if total_trades > 0 else 0
+            loss_rate = 1 - win_rate
+            avg_win = winning.mean() if len(winning) > 0 else 0
+            avg_loss = abs(losing.mean()) if len(losing) > 0 else 0
+            expected_value = (win_rate * avg_win) - (loss_rate * avg_loss)
+        else:
+            total_trades, win_rate, avg_win, avg_loss, expected_value
