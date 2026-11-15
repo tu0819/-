@@ -40,7 +40,7 @@ st.sidebar.markdown("---")
 benchmark_symbol = st.sidebar.text_input("大盤對標代號", value="^TWII")
 period = st.sidebar.selectbox("選擇回測時間範圍", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=1)
 
-# 【新增】券商一鍵選擇與交易成本設定
+# 券商一鍵選擇與交易成本設定
 st.sidebar.subheader("交易成本與券商設定 (台股)")
 include_fees = st.sidebar.checkbox("計入手續費與證交稅", value=True, help="自動扣除買賣手續費及證交稅（ETF享0.1%優惠稅率）")
 
@@ -251,4 +251,146 @@ with tab1:
                 st.metric("持倉總市值 / 總成本", f"{sell_val:,.0f} / {total_cost:,.0f}")
             with mc2:
                 label_suffix = " (含手續費/稅)" if include_fees else ""
-                st.metric(f"未實現損益{label_suffix
+                st.metric(f"未實現損益{label_suffix}", f"{pnl_amount:+,.0f} 元", delta=f"{my_return:.2f}%", delta_color="normal" if pnl_amount >= 0 else "inverse")
+            with mc3:
+                st.metric(f"依成本停損價 (-{sl_pct}%)", f"{my_sl_price:.2f}")
+            with mc4:
+                st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
+            
+            if effective_close <= my_sl_price:
+                st.error(f"🚨 【當下出場警示】目前參考價 ({effective_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+            elif effective_close >= my_tp_price:
+                st.success(f"🎯 【當下出場警示】目前參考價 ({effective_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+            else:
+                buffer_amt = effective_close - my_sl_price
+                st.info(f"🛡️ 【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
+        else:
+            st.info("💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的「平均買價」與「持有股數」，這裡將即時為您分析該檔股票的未實現損益！")
+
+        with st.expander("🔍 檢視詳細歷史價格與變動明細表"):
+            detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
+            detail_df['價格變動(元)'] = detail_df['Close'].diff()
+            detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
+            detail_df = detail_df.sort_index(ascending=False)
+            st.dataframe(detail_df.style.format({
+                'Open': '{:.2f}', 'High': '{:.2f}', 'Low': '{:.2f}', 'Close': '{:.2f}',
+                'Volume': '{:,.0f}', '價格變動(元)': '{:+.2f}', '漲跌幅(%)': '{:+.2f}%'
+            }), use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("🤖 當下技術面綜合操作指引")
+        latest_sma5 = float(data['SMA_5'].iloc[-1])
+        latest_sma20 = float(data['SMA_20'].iloc[-1])
+        latest_rsi = float(data['RSI'].iloc[-1])
+
+        if latest_sma5 > latest_sma20:
+            if latest_rsi > 70:
+                box_func = st.warning
+                action_title, action_desc = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）", "短期均線大於長期均線，但 RSI 進入超買區，短線有回檔壓力。"
+            else:
+                box_func = st.success
+                action_title, action_desc = "建議偏多操作 / 可考慮進場續抱", "短期均線大於長期均線且 RSI 處於健康區間，符合多頭趨勢。"
+        else:
+            if latest_rsi < 30:
+                box_func = st.info
+                action_title, action_desc = "空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）", "均線雖屬空頭，但 RSI 已跌破 30 超賣區，可能出現跌深反彈。"
+            else:
+                box_func = st.error
+                action_title, action_desc = "建議空手觀望 / 暫時避險", "短期均線小於長期均線，趨勢向下，建議耐心等待黃金交叉。"
+
+        box_func(f"### {action_title}\n{action_desc}")
+    else:
+        st.error("找不到該股票代號的歷史資料，請確認代號是否正確（台股請加 .TW，例如 0050.TW）。")
+
+with tab2:
+    st.subheader("📋 我的多檔持股總覽與資產配置診斷")
+    st.markdown("在此新增您名下的各個持股部位，App 將自動套用您所選券商的折扣與稅費，計算總淨市值與未實現損益！")
+
+    with st.form("add_holding_form"):
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            new_sym = st.text_input("股票代號 (例如 2330.TW)", value="2330.TW")
+        with col_f2:
+            new_shares = st.number_input("持有股數", value=1000.0, step=100.0)
+        with col_f3:
+            new_cost = st.number_input("平均買價", value=500.0, step=0.5)
+        
+        submitted = st.form_submit_button("➕ 新增至我的持股清單")
+        if submitted:
+            st.session_state.portfolio.append({
+                "symbol": new_sym.upper(),
+                "shares": new_shares,
+                "cost": new_cost
+            })
+            st.success(f"成功新增 {new_sym.upper()}！")
+
+    if len(st.session_state.portfolio) > 0:
+        st.markdown("### 目前持股明細")
+        portfolio_data = []
+        total_market_value = 0
+        total_cost_value = 0
+
+        for idx, item in enumerate(st.session_state.portfolio):
+            sym = item['symbol']
+            shs = item['shares']
+            cst = item['cost']
+            
+            try:
+                t_df = load_stock_data(sym, "1mo")
+                curr_p = float(t_df['Close'].iloc[-1]) if not t_df.empty else cst
+            except:
+                curr_p = cst
+
+            b_val = cst * shs
+            s_val = curr_p * shs
+            is_etf = sym.strip().upper().startswith("0")
+            tax_r = 0.001 if is_etf else 0.003
+
+            if include_fees:
+                b_fee = max(20.0, b_val * 0.001425 * (broker_discount / 10.0))
+                s_fee = max(20.0, s_val * 0.001425 * (broker_discount / 10.0))
+                s_tax = s_val * tax_r
+                item_cost = b_val + b_fee
+                item_net_val = s_val - s_fee - s_tax
+                pnl = item_net_val - item_cost
+                pnl_pct = (pnl / item_cost * 100) if item_cost > 0 else 0
+            else:
+                item_cost = b_val
+                item_net_val = s_val
+                pnl = s_val - b_val
+                pnl_pct = ((curr_p - cst) / cst * 100) if cst > 0 else 0
+
+            total_market_value += item_net_val
+            total_cost_value += item_cost
+
+            portfolio_data.append({
+                "代號": sym,
+                "股數": shs,
+                "平均成本": cst,
+                "現價": round(curr_p, 2),
+                "含稅市值(元)": round(item_net_val, 2),
+                "未實現損益(元)": round(pnl, 2),
+                "報酬率(%)": f"{pnl_pct:.2f}%"
+            })
+
+        pf_df = pd.DataFrame(portfolio_data)
+        st.dataframe(pf_df, use_container_width=True)
+
+        total_pnl = total_market_value - total_cost_value
+        total_pnl_pct = (total_pnl / total_cost_value * 100) if total_cost_value > 0 else 0
+
+        st.markdown("---")
+        st.subheader("💰 整體資產總結 (含交易成本)")
+        pc1, pc2, pc3 = st.columns(3)
+        with pc1:
+            st.metric("總投資成本 (含買進手續費)", f"{total_cost_value:,.2f} 元")
+        with pc2:
+            st.metric("目前總淨市值 (扣除賣出費稅)", f"{total_market_value:,.2f} 元")
+        with pc3:
+            st.metric("總未實現損益", f"{total_pnl:+,.2f} 元", delta=f"{total_pnl_pct:.2f}%", delta_color="normal" if total_pnl >= 0 else "inverse")
+
+        if st.button("🗑️ 清空所有持股紀錄"):
+            st.session_state.portfolio = []
+            st.rerun()
+    else:
+        st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
