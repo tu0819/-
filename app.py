@@ -11,11 +11,9 @@ st.set_page_config(page_title="專業級智慧股票與資產管理平台", layo
 # ==================== 自訂現代化高質感 CSS 樣式 ====================
 st.markdown("""
 <style>
-    /* 全局字體與背景微調 */
     .main {
         background-color: #0e1117;
     }
-    /* 卡片區塊容器外觀 */
     .metric-card {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -24,14 +22,9 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 10px;
     }
-    /* 標題與文字質感優化 */
     h1, h2, h3 {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         letter-spacing: -0.5px;
-    }
-    /* 側邊欄外觀優化 */
-    sidebar-content {
-        background-color: #111418;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -49,7 +42,6 @@ if 'portfolio' not in st.session_state:
 # ==================== 側邊欄設定 ====================
 st.sidebar.header("🎛️ 參數與導航控制台")
 
-# 一鍵重新整理按鈕
 if st.sidebar.button("🔄 立即重新整理最新行情", use_container_width=True):
     st.cache_data.clear()
     st.success("已清除快取並更新最新行情！")
@@ -66,18 +58,17 @@ with col_fav1:
     if st.button("➕ 加入收藏", use_container_width=True):
         if stock_symbol.upper() not in st.session_state.watchlist:
             st.session_state.watchlist.append(stock_symbol.upper())
-            st.success(f"已加入！")
+            st.success("已加入！")
 with col_fav2:
     if st.button("🗑️ 移除收藏", use_container_width=True):
         if stock_symbol.upper() in st.session_state.watchlist:
             st.session_state.watchlist.remove(stock_symbol.upper())
-            st.warning(f"已移除。")
+            st.warning("已移除。")
 
 st.sidebar.markdown("---")
 benchmark_symbol = st.sidebar.text_input("📈 大盤對標代號", value="^TWII")
 period = st.sidebar.selectbox("⏳ 選擇回測時間範圍", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=1)
 
-# 券商一鍵選擇與交易成本設定
 st.sidebar.subheader("💰 交易成本與券商設定")
 include_fees = st.sidebar.checkbox("自動扣除買賣手續費及證交稅", value=True, help="ETF享0.1%優惠稅率，一般股票0.3%")
 
@@ -107,7 +98,6 @@ sl_pct = st.sidebar.slider("停損跌幅 (%)", 1.0, 20.0, 5.0, 0.5)
 enable_tp = st.sidebar.checkbox("啟用停利機制 (Take-Profit)", value=True)
 tp_pct = st.sidebar.slider("停利漲幅 (%)", 2.0, 50.0, 15.0, 0.5)
 
-# 個股持倉與現價校正
 st.sidebar.subheader("🎯 當前個股持倉與現價校正")
 user_cost = st.sidebar.number_input("平均買價 (無持倉填0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("持有股數 (無持倉填0)", value=0.0, step=100.0)
@@ -143,7 +133,7 @@ tab1, tab2 = st.tabs(["📊 個股深度分析與風控建議", "📋 我的多�
 
 with tab1:
     if not data.empty and len(data) > 0:
-        st.markdown(f"### 📈 `{stock_symbol.upper()` 技術走勢與量化訊號")
+        st.markdown(f"### 📈 `{stock_symbol.upper()}` 技術走勢與量化訊號")
 
         window_len = min(5, len(data))
         long_window = min(20, len(data))
@@ -206,7 +196,6 @@ with tab1:
         else:
             total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
-        # 高質感圖表設計
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
                             row_heights=[0.6, 0.2, 0.2],
@@ -232,7 +221,6 @@ with tab1:
         fig.add_hline(y=70, line_dash="dash", line_color="#da3633", row=3, col=1)
         fig.add_hline(y=30, line_dash="dash", line_color="#2ea043", row=3, col=1)
 
-        # 佈局套用深色現代風外觀
         fig.update_layout(
             height=750,
             template="plotly_dark",
@@ -243,7 +231,6 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 策略績效看板
         st.markdown("### 🎯 量化回測表現與每筆交易期望值 (EV)")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -256,9 +243,8 @@ with tab1:
             st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
                       delta="正向優勢" if expected_value > 0 else "負向劣勢")
 
-        # 個人持倉績效與風控評估
         st.markdown("---")
-        st.markdown(f"### 🛡️ `{stock_symbol.upper()` 個人持倉與風險管理")
+        st.markdown(f"### 🛡️ `{stock_symbol.upper()}` 個人持倉與風險管理")
 
         market_latest_close = float(data['Close'].iloc[-1])
         effective_close = user_manual_price if user_manual_price > 0 else market_latest_close
