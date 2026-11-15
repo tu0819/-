@@ -162,4 +162,53 @@ if not data.empty:
     
     if not bench_data.empty:
         bench_close = bench_data['Close'] / bench_data['Close'].iloc[0] * data['Close'].iloc[0]
-        fig.
+        fig.add_trace(go.Scatter(x=bench_data.index, y=bench_close, name=f'大盤基準 ({benchmark_symbol})', line=dict(color='gray', dash='dot')), row=1, col=1)
+
+    colors = ['red' if row['Close'] < row['Open'] else 'green' for index, row in data.iterrows()]
+    fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='成交量', marker_color=colors), row=2, col=1)
+    
+    fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='purple', width=1)), row=3, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+
+    fig.update_layout(height=800)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ==================== 策略期望值與表現看板 ====================
+    st.subheader("🎯 量化回測表現與每筆交易期望值 (EV)")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("總回測交易次數", f"{total_trades} 次")
+    with c2:
+        st.metric("勝率 (Win Rate)", f"{win_rate * 100:.2f}%")
+    with c3:
+        st.metric("平均賺賠比", f"賺 {avg_win*100:.2f}% / 賠 {avg_loss*100:.2f}%")
+    with c4:
+        st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
+                  delta="正向優勢" if expected_value > 0 else "負向劣勢")
+
+    # ==================== 當下進出場綜合建議看板 ====================
+    st.markdown("---")
+    st.subheader("🤖 當下進出場綜合建議與操作指引")
+
+    latest_close = float(data['Close'].iloc[-1])
+    latest_sma5 = float(data['SMA_5'].iloc[-1])
+    latest_sma20 = float(data['SMA_20'].iloc[-1])
+    latest_rsi = float(data['RSI'].iloc[-1])
+
+    ref_sl_price = latest_close * (1 - sl_pct / 100)
+    ref_tp_price = latest_close * (1 + tp_pct / 100)
+
+    if latest_sma5 > latest_sma20:
+        if latest_rsi > 70:
+            action_title = "🟡 多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
+            action_desc = "目前短均線大於長均線（多頭排列），但 RSI 指標已進入 70 以上超買區，短線有回檔壓力，不宜過度追高。"
+            box_func = st.warning
+        else:
+            action_title = "🟢 建議偏多操作 / 可考慮進場續抱"
+            action_desc = "目前短均線大於長均線且 RSI 處於健康區間，符合多頭趨勢，歷史統計與技術結構具備正面優勢。"
+            box_func = st.success
+    else:
+        if latest_rsi < 30:
+            action_title = "🔵 空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）"
