@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 設定網頁標題與寬度
-st.set_page_config(page_title="專業級智慧股票與資產管理 App", layout="wide")
+st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide")
 
 st.title("專業級智慧股票與量化資產管理平台")
 
@@ -41,7 +41,15 @@ with col_fav2:
 
 st.sidebar.markdown("---")
 benchmark_symbol = st.sidebar.text_input("大盤對標代號", value="^TWII")
-period = st.sidebar.selectbox("選擇回測時間範圍", ["3mo", "6mo", "1y", "2y", "5y", "max"], index=2)
+period = st.sidebar.selectbox("選擇回測時間範圍", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=3)
+
+# 【新增】資料細緻度（時間頻率）選擇
+interval = st.sidebar.selectbox(
+    "選擇資料頻率 (細緻度)", 
+    ["1d", "1h", "30m", "15m", "5m", "1m"], 
+    index=0,
+    help="注意：1m分鐘線僅支援最近7天內；5m/15m/1h支援最近60天內。若選擇過長期間搭配短頻率會自動適應。"
+)
 
 st.sidebar.subheader("停損與停利設定")
 enable_sl = st.sidebar.checkbox("啟用停損機制 (Stop-Loss)", value=True)
@@ -55,11 +63,16 @@ st.sidebar.subheader("當前個股持倉評估")
 user_cost = st.sidebar.number_input("此股票平均買價 (若無持倉填 0)", value=0.0, step=0.1)
 user_shares = st.sidebar.number_input("此股票持有股數 (若無持倉填 0)", value=0.0, step=100.0)
 
-# ==================== 資料載入與處理 ====================
+# ==================== 資料載入與處理（支援自訂頻率與防呆） ====================
 @st.cache_data
-def load_data(symbol, bench_symbol, time_period):
-    df = yf.download(symbol, period=time_period)
-    bench = yf.download(bench_symbol, period=time_period)
+def load_data(symbol, bench_symbol, time_period, data_interval):
+    try:
+        df = yf.download(symbol, period=time_period, interval=data_interval)
+        bench = yf.download(bench_symbol, period=time_period, interval=data_interval)
+    except:
+        # 若組合不支援自動降級為預設日線
+        df = yf.download(symbol, period=time_period)
+        bench = yf.download(bench_symbol, period=time_period)
     
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -86,14 +99,14 @@ def load_fundamentals(symbol):
     except:
         return None
 
-data, bench_data = load_data(stock_symbol, benchmark_symbol, period)
+data, bench_data = load_data(stock_symbol, benchmark_symbol, period, interval)
 fund_info = load_fundamentals(stock_symbol)
 
 # ==================== 主畫面分頁籤設計 ====================
 tab1, tab2 = st.tabs(["個股深度分析與持倉建議", "我的多檔持股總覽與資產診斷"])
 
 with tab1:
-    if not data.empty:
+    if not data.empty and len(data) > 0:
         if fund_info:
             st.subheader(f"{fund_info['name']} ({stock_symbol.upper()}) 基本面與基金概況")
             f1, f2, f3, f4 = st.columns(4)
@@ -115,11 +128,14 @@ with tab1:
             st.markdown("---")
 
         # 技術指標與回測計算
-        data['SMA_5'] = data['Close'].rolling(window=5).mean()
-        data['SMA_20'] = data['Close'].rolling(window=20).mean()
+        window_len = min(5, len(data))
+        long_window = min(20, len(data))
         
-        data['BB_Middle'] = data['Close'].rolling(window=20).mean()
-        bb_std = data['Close'].rolling(window=20).std()
+        data['SMA_5'] = data['Close'].rolling(window=window_len).mean()
+        data['SMA_20'] = data['Close'].rolling(window=long_window).mean()
+        
+        data['BB_Middle'] = data['Close'].rolling(window=long_window).mean()
+        bb_std = data['Close'].rolling(window=long_window).std()
         data['BB_Upper'] = data['BB_Middle'] + (bb_std * 2)
         data['BB_Lower'] = data['BB_Middle'] - (bb_std * 2)
         
@@ -174,22 +190,22 @@ with tab1:
             total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
 
         # 圖表繪製
-        st.subheader(f"{stock_symbol.upper()} 多功能技術分析與進出場訊號圖")
+        st.subheader(f"{stock_symbol.upper()} 多時間點技術分析與進出場訊號圖 (頻率: {interval})")
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
                             row_heights=[0.6, 0.2, 0.2],
                             subplot_titles=("價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
         
         fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='black', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='5日線', line=dict(color='orange', width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='20日月線', line=dict(color='blue', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='短期均線', line=dict(color='orange', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='長期均線', line=dict(color='blue', width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='布林上軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash')), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='布林下軌', line=dict(color='rgba(0,0,255,0.2)', dash='dash'), fill='tonexty'), row=1, col=1)
         
         fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', name='建議進場 (買)', marker=dict(symbol='triangle-up', size=14, color='green')), row=1, col=1)
         fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', name='建議出場 (賣)', marker=dict(symbol='triangle-down', size=14, color='red')), row=1, col=1)
         
-        if not bench_data.empty:
+        if not bench_data.empty and len(bench_data) > 0:
             bench_close = bench_data['Close'] / bench_data['Close'].iloc[0] * data['Close'].iloc[0]
             fig.add_trace(go.Scatter(x=bench_data.index, y=bench_close, name=f'大盤基準 ({benchmark_symbol})', line=dict(color='gray', dash='dot')), row=1, col=1)
 
@@ -241,9 +257,9 @@ with tab1:
                 st.metric(f"依成本停利價 (+{tp_pct}%)", f"{my_tp_price:.2f}")
             
             if latest_close <= my_sl_price:
-                st.error(f"【當下出場警示】目前股價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
+                st.error(f"【當下出場警示】目前最新價 ({latest_close:.2f}) 已跌破您的停損價 ({my_sl_price:.2f})！建議果斷執行紀律停損出場。")
             elif latest_close >= my_tp_price:
-                st.success(f"【當下出場警示】目前股價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
+                st.success(f"【當下出場警示】目前最新價 ({latest_close:.2f}) 已達到您的停利價 ({my_tp_price:.2f})！建議考慮獲利了結或分批減碼。")
             else:
                 buffer_amt = latest_close - my_sl_price
                 st.info(f"【續抱建議】目前持倉安全運作中。距離停損價還有 {buffer_amt:.2f} 元的緩衝空間，可繼續續抱觀望。")
@@ -260,11 +276,11 @@ with tab1:
         if latest_sma5 > latest_sma20:
             if latest_rsi > 70:
                 action_title = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）"
-                action_desc = "目前短均線大於長均線（多頭排列），但 RSI 指標已進入 70 以上超買區，短線有回檔壓力。"
+                action_desc = "目前短期均線大於長期均線（多頭排列），但 RSI 指標已進入 70 以上超買區，短線有回檔壓力。"
                 box_func = st.warning
             else:
                 action_title = "建議偏多操作 / 可考慮進場續抱"
-                action_desc = "目前短均線大於長均線且 RSI 處於健康區間，符合多頭趨勢。"
+                action_desc = "目前短期均線大於長期均線且 RSI 處於健康區間，符合多頭趨勢。"
                 box_func = st.success
         else:
             if latest_rsi < 30:
@@ -273,16 +289,16 @@ with tab1:
                 box_func = st.info
             else:
                 action_title = "建議空手觀望 / 暫時避險"
-                action_desc = "短均線小於長均線（空頭排列），趨勢向下，建議耐心等待黃金交叉。"
+                action_desc = "短期均線小於長期均線（空頭排列），趨勢向下，建議耐心等待黃金交叉。"
                 box_func = st.error
 
         box_func(f"### {action_title}\n{action_desc}")
     else:
-        st.error("找不到該股票代號，請確認代號是否正確（台股請加 .TW）。")
+        st.error("找不到該股票代號或所選頻率與時間範圍不相容，請確認代號是否正確（台股請加 .TW）或更換時間頻率。")
 
 with tab2:
     st.subheader("我的多檔持股總覽與資產配置診斷")
-    st.markdown("在此新增您名下的各個持股部位，App 將自動幫您計算總市值、總未實現損益，並提供全面診斷！")
+    st.markdown("在此新增您名下的各個持股部位，App 將自動串接最新行情幫您計算總市值、總未實現損益，並提供全面診斷！")
 
     # 新增持股表單
     with st.form("add_holding_form"):
@@ -316,17 +332,18 @@ with tab2:
             cst = item['cost']
             
             try:
-                t_df = yf.download(sym, period="5d")
-                if isinstance(t_df.columns, pd.MultiIndex):
-                    t_df.columns = t_df.columns.get_level_values(0)
-                curr_p = float(t_df['Close'].iloc[-1])
+                t_obj = yf.Ticker(sym)
+                curr_p = t_obj.fast_info.get('last_price', None)
+                if not curr_p:
+                    t_df = t_obj.history(period="1d")
+                    curr_p = float(t_df['Close'].iloc[-1])
             except:
                 curr_p = cst
 
             m_val = curr_p * shs
             c_val = cst * shs
             pnl = m_val - c_val
-            pnl_pct = (curr_p - cst) / cst * 100
+            pnl_pct = ((curr_p - cst) / cst * 100) if cst > 0 else 0
 
             total_market_value += m_val
             total_cost_value += c_val
@@ -361,4 +378,4 @@ with tab2:
             st.session_state.portfolio = []
             st.rerun()
     else:
-        st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
+        st.info("print('目前尚無持股紀錄')：請透過上方表格新增您的股票部位。")
