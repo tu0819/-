@@ -170,7 +170,8 @@ if not data.empty:
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
 
-    fig.update_layout(height=800, xaxis_datagaps=[])
+    # 已移除會導致報錯的 xaxis_datagaps=[]
+    fig.update_layout(height=800)
     st.plotly_chart(fig, use_container_width=True)
 
     # ==================== 策略期望值與表現看板 ====================
