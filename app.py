@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 設定網頁標題與寬度
-st.set_page_config(page_title="專業級智慧股票與資產管理平台", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="ProTrader 專業級智慧資產管理平台", layout="wide", initial_sidebar_state="expanded")
 
 # ==================== 自訂現代化高質感 CSS 樣式 ====================
 st.markdown("""
@@ -30,7 +30,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ ProTrader 專業級量化資產管理與看盤平台")
-st.markdown("<p style='color: #8b949e; margin-top: -10px;'>結合即時行情、量化回測與台股精準稅費校正的智慧投資儀表板</p>", unsafe_allow_html=True)
+st.markdown("<p style='color: #8b949e; margin-top: -10px;'>結合即時行情、逢低佈局判定、分批加碼試算與台股精準稅費校正的智慧投資儀表板</p>", unsafe_allow_html=True)
 
 # ==================== 初始化 Session State ====================
 if 'watchlist' not in st.session_state:
@@ -38,6 +38,9 @@ if 'watchlist' not in st.session_state:
 
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = []
+
+if 'batches' not in st.session_state:
+    st.session_state.batches = []  # 用於分批加碼試算
 
 # ==================== 側邊欄設定 ====================
 st.sidebar.header("🎛️ 參數與導航控制台")
@@ -129,11 +132,15 @@ data = load_stock_data(stock_symbol, period)
 bench_data = load_benchmark(benchmark_symbol, period)
 
 # ==================== 主畫面分頁籤設計 ====================
-tab1, tab2 = st.tabs(["📊 個股深度分析與風控建議", "📋 我的多檔持股總覽與資產診斷"])
+tab1, tab2, tab3 = st.tabs([
+    "📊 個股深度分析與逢低佈局", 
+    "📋 我的多檔持股總覽與資產診斷", 
+    "🧮 定期定額與分批加碼試算器"
+])
 
 with tab1:
     if not data.empty and len(data) > 0:
-        st.markdown(f"### 📈 `{stock_symbol.upper()}` 技術走勢與量化訊號")
+        st.markdown(f"### 📈 `{stock_symbol.upper()}` 技術走勢與逢低訊號")
 
         window_len = min(5, len(data))
         long_window = min(20, len(data))
@@ -152,20 +159,18 @@ with tab1:
         rs = gain / loss
         data['RSI'] = 100 - (100 / (1 + rs))
 
-        # 【全新低點與抄底訊號邏輯】
-        # 計算近期（例如回測區間內）的最低價
         recent_low = data['Close'].min()
         recent_high = data['Close'].max()
         current_close = float(data['Close'].iloc[-1])
         latest_rsi = float(data['RSI'].iloc[-1])
 
-        # 若目前價格距離近期最低價在 3% 以內，或 RSI低於 35，判定為接近底部
+        # 逢低佈局判定邏輯
         is_near_low = (current_close <= recent_low * 1.03) or (latest_rsi < 35)
 
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
                             row_heights=[0.6, 0.2, 0.2],
-                            subplot_titles=("價格、均線、布林通道與進出場點", "成交量 (Volume)", "RSI 強弱指標"))
+                            subplot_titles=("價格、均線、布林通道與支撐區", "成交量 (Volume)", "RSI 強弱指標"))
         
         fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='收盤價', line=dict(color='#58a6ff', width=1.5)), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=data['SMA_5'], name='短期均線 (5MA)', line=dict(color='#ffa657', width=1)), row=1, col=1)
@@ -249,20 +254,9 @@ with tab1:
                 </div>
             """, unsafe_allow_html=True)
 
-        with st.expander("🔍 點擊展開：詳細歷史價格與變動明細表"):
-            detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
-            detail_df['價格變動(元)'] = detail_df['Close'].diff()
-            detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
-            detail_df = detail_df.sort_index(ascending=False)
-            st.dataframe(detail_df.style.format({
-                'Open': '{:.2f}', 'High': '{:.2f}', 'Low': '{:.2f}', 'Close': '{:.2f}',
-                'Volume': '{:,.0f}', '價格變動(元)': '{:+.2f}', '漲跌幅(%)': '{:+.2f}%'
-            }), use_container_width=True)
-
         st.markdown("---")
         st.markdown("### 🤖 逢低佈局與進場點判定指引")
         
-        # 【全新判斷介面】
         if is_near_low:
             box_func = st.success
             action_title = "🔥 接近近期低點 / 適合逢低佈局進場"
@@ -373,3 +367,53 @@ with tab2:
             st.rerun()
     else:
         st.info("目前尚無持股紀錄，請透過上方表格新增您的股票部位。")
+
+with tab3:
+    st.markdown("### 🧮 定期定額與分批加碼成本試算器")
+    st.markdown("如果您是分批買進（例如每個月買一次 0050 或 009816），可以在此新增每一筆的買進價格與股數，系統會自動幫您算出**加權平均成本**與含手續費的總投組狀態！")
+
+    with st.form("batch_form"):
+        bc1, bc2, bc3 = st.columns(3)
+        with bc1:
+            batch_date_label = st.text_input("批次標籤/日期", value="第 1 批 (2026/11)")
+        with bc2:
+            batch_price = st.number_input("買進價格", value=100.0, step=0.1)
+        with bc3:
+            batch_shares = st.number_input("買進股數", value=1000.0, step=100.0)
+        
+        add_batch_btn = st.form_submit_button("➕ 新增此筆加碼紀錄", use_container_width=True)
+        if add_batch_btn:
+            st.session_state.batches.append({
+                "label": batch_date_label,
+                "price": batch_price,
+                "shares": batch_shares
+            })
+            st.success(f"成功新增 {batch_date_label}！")
+
+    if len(st.session_state.batches) > 0:
+        st.markdown("#### 📜 分批買進紀錄明細")
+        batch_df = pd.DataFrame(st.session_state.batches)
+        st.dataframe(batch_df, use_container_width=True)
+
+        # 計算加權平均與總成本
+        total_batch_shares = sum(b['shares'] for b in st.session_state.batches)
+        total_batch_raw_cost = sum(b['price'] * b['shares'] for b in st.session_state.batches)
+        weighted_avg_cost = total_batch_raw_cost / total_batch_shares if total_batch_shares > 0 else 0
+        
+        # 總買進手續費
+        total_buy_fee = sum(max(20.0, (b['price'] * b['shares']) * 0.001425 * (broker_discount / 10.0)) for b in st.session_state.batches)
+        grand_total_cost = total_batch_raw_cost + total_buy_fee
+
+        bc_res1, bc_res2, bc_res3 = st.columns(3)
+        with bc_res1:
+            st.metric("累計總持有股數", f"{total_batch_shares:,.0f} 股")
+        with bc_res2:
+            st.metric("加權平均買價", f"{weighted_avg_cost:.2f} 元")
+        with bc_res3:
+            st.metric("含手續費總投入成本", f"{grand_total_cost:,.2f} 元")
+
+        if st.button("🗑️ 清空所有加碼紀錄"):
+            st.session_state.batches = []
+            st.rerun()
+    else:
+        st.info("目前尚無分批加碼紀錄，請透過上方表格新增您的分批買進明細。")
