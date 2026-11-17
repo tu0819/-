@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import time
 
 # 設定網頁標題與寬度
 st.set_page_config(page_title="ProTrader 專業級智慧資產管理平台", layout="wide", initial_sidebar_state="expanded")
@@ -29,8 +30,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ ProTrader 專業級量化資產管理與看盤平台")
-st.markdown("<p style='color: #8b949e; margin-top: -10px;'>結合即時行情、逢低佈局判定、分批加碼試算與台股精準稅費校正的智慧投資儀表板</p>", unsafe_allow_html=True)
+st.title("⚡ ProTrader 專業級量化資產管理與自動看盤平台")
+st.markdown("<p style='color: #8b949e; margin-top: -10px;'>具備自動定時更新行情、逢低佈局判定、分批加碼試算與台股精準稅費校正的智慧投資儀表板</p>", unsafe_allow_html=True)
 
 # ==================== 初始化 Session State ====================
 if 'watchlist' not in st.session_state:
@@ -40,12 +41,22 @@ if 'portfolio' not in st.session_state:
     st.session_state.portfolio = []
 
 if 'batches' not in st.session_state:
-    st.session_state.batches = []  # 用於分批加碼試算
+    st.session_state.batches = []
 
 # ==================== 側邊欄設定 ====================
 st.sidebar.header("🎛️ 參數與導航控制台")
 
-if st.sidebar.button("🔄 立即重新整理最新行情", use_container_width=True):
+# 【全新】自動更新開關與頻率設定
+st.sidebar.subheader("🔄 即時行情自動更新設定")
+auto_refresh = st.sidebar.checkbox("啟用背景自動更新行情", value=False, help="勾選後，頁面將會依照設定的秒數自動重新整理抓取最新股價")
+refresh_interval = st.sidebar.slider("更新頻率 (秒)", 10, 300, 30, 10, help="建議設定在 30 秒以上，避免頻繁請求被 Yahoo 阻擋")
+
+if auto_refresh:
+    # 利用 Streamlit 內建的 rerun 機制實作安全自動更新
+    time.sleep(refresh_interval)
+    st.rerun()
+
+if st.sidebar.button("🔄 立即手動重新整理", use_container_width=True):
     st.cache_data.clear()
     st.success("已清除快取並更新最新行情！")
     st.rerun()
@@ -107,7 +118,7 @@ user_shares = st.sidebar.number_input("持有股數 (無持倉填0)", value=0.0,
 user_manual_price = st.sidebar.number_input("手動覆蓋現價 (填0則自動抓行情)", value=0.0, step=0.01, help="可輸入券商 App 當下現價以完美對齊！")
 
 # ==================== 資料載入函數 ====================
-@st.cache_data
+@st.cache_data(ttl=60)  # 快取有效時間設定為 60 秒，確保自動更新能抓到最新行情
 def load_stock_data(symbol, time_period):
     try:
         df = yf.download(symbol, period=time_period)
@@ -118,7 +129,7 @@ def load_stock_data(symbol, time_period):
         st.error(f"下載股票資料發生錯誤: {e}")
         return pd.DataFrame()
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_benchmark(bench_symbol, time_period):
     try:
         bench = yf.download(bench_symbol, period=time_period)
@@ -164,7 +175,6 @@ with tab1:
         current_close = float(data['Close'].iloc[-1])
         latest_rsi = float(data['RSI'].iloc[-1])
 
-        # 逢低佈局判定邏輯
         is_near_low = (current_close <= recent_low * 1.03) or (latest_rsi < 35)
 
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
@@ -253,6 +263,16 @@ with tab1:
                     💡 提示：若您目前持有這檔股票，請在左側側邊欄輸入您的<strong>「平均買價」</strong>與<strong>「持有股數」</strong>，系統將即時為您計算含手續費與稅費的精準損益！
                 </div>
             """, unsafe_allow_html=True)
+
+        with st.expander("🔍 點擊展開：詳細歷史價格與變動明細表"):
+            detail_df = data[['Open', 'High', 'Low', 'Close', 'Volume']].tail(30).copy()
+            detail_df['價格變動(元)'] = detail_df['Close'].diff()
+            detail_df['漲跌幅(%)'] = detail_df['Close'].pct_change() * 100
+            detail_df = detail_df.sort_index(ascending=False)
+            st.dataframe(detail_df.style.format({
+                'Open': '{:.2f}', 'High': '{:.2f}', 'Low': '{:.2f}', 'Close': '{:.2f}',
+                'Volume': '{:,.0f}', '價格變動(元)': '{:+.2f}', '漲跌幅(%)': '{:+.2f}%'
+            }), use_container_width=True)
 
         st.markdown("---")
         st.markdown("### 🤖 逢低佈局與進場點判定指引")
@@ -381,7 +401,7 @@ with tab3:
         with bc3:
             batch_shares = st.number_input("買進股數", value=1000.0, step=100.0)
         
-        add_batch_btn = st.form_submit_button("➕ 新增此筆加碼紀錄", use_container_width=True)
+        add_batch_btn = st.form_submit_button("➕ 新增這筆加碼紀錄", use_container_width=True)
         if add_batch_btn:
             st.session_state.batches.append({
                 "label": batch_date_label,
@@ -395,12 +415,10 @@ with tab3:
         batch_df = pd.DataFrame(st.session_state.batches)
         st.dataframe(batch_df, use_container_width=True)
 
-        # 計算加權平均與總成本
         total_batch_shares = sum(b['shares'] for b in st.session_state.batches)
         total_batch_raw_cost = sum(b['price'] * b['shares'] for b in st.session_state.batches)
         weighted_avg_cost = total_batch_raw_cost / total_batch_shares if total_batch_shares > 0 else 0
         
-        # 總買進手續費
         total_buy_fee = sum(max(20.0, (b['price'] * b['shares']) * 0.001425 * (broker_discount / 10.0)) for b in st.session_state.batches)
         grand_total_cost = total_batch_raw_cost + total_buy_fee
 
