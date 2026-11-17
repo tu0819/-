@@ -152,49 +152,15 @@ with tab1:
         rs = gain / loss
         data['RSI'] = 100 - (100 / (1 + rs))
 
-        data['Position'] = np.where(data['SMA_5'] > data['SMA_20'], 1, 0)
-        data['Signal'] = data['Position'].diff()
+        # 【全新低點與抄底訊號邏輯】
+        # 計算近期（例如回測區間內）的最低價
+        recent_low = data['Close'].min()
+        recent_high = data['Close'].max()
+        current_close = float(data['Close'].iloc[-1])
+        latest_rsi = float(data['RSI'].iloc[-1])
 
-        buy_signals = data[data['Signal'] == 1]
-        sell_signals = data[data['Signal'] == -1]
-
-        trades = []
-        in_trade = False
-        entry_price = 0
-        
-        for i in range(len(data)):
-            row = data.iloc[i]
-            price = row['Close']
-            if not in_trade:
-                if row['Signal'] == 1:
-                    entry_price = price
-                    in_trade = True
-            else:
-                current_return = (price - entry_price) / entry_price
-                hit_sl = enable_sl and (current_return <= -sl_pct / 100.0)
-                hit_tp = enable_tp and (current_return >= tp_pct / 100.0)
-                hit_signal_exit = row['Signal'] == -1
-                
-                if hit_sl or hit_tp or hit_signal_exit:
-                    trades.append(current_return)
-                    in_trade = False
-                    
-        if in_trade:
-            trades.append((data['Close'].iloc[-1] - entry_price) / entry_price)
-            
-        trades_df = pd.Series(trades) if len(trades) > 0 else pd.Series()
-        
-        if not trades_df.empty:
-            winning = trades_df[trades_df > 0]
-            losing = trades_df[trades_df < 0]
-            total_trades = len(trades_df)
-            win_rate = len(winning) / total_trades if total_trades > 0 else 0
-            loss_rate = 1 - win_rate
-            avg_win = winning.mean() if len(winning) > 0 else 0
-            avg_loss = abs(losing.mean()) if len(losing) > 0 else 0
-            expected_value = (win_rate * avg_win) - (loss_rate * avg_loss)
-        else:
-            total_trades, win_rate, avg_win, avg_loss, expected_value = 0, 0, 0, 0, 0
+        # 若目前價格距離近期最低價在 3% 以內，或 RSI低於 35，判定為接近底部
+        is_near_low = (current_close <= recent_low * 1.03) or (latest_rsi < 35)
 
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.03, 
@@ -206,9 +172,6 @@ with tab1:
         fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='長期均線 (20MA)', line=dict(color='#1f6feb', width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='布林上軌', line=dict(color='rgba(88,166,255,0.2)', dash='dash')), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='布林下軌', line=dict(color='rgba(88,166,255,0.2)', dash='dash'), fill='tonexty'), row=1, col=1)
-        
-        fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', name='建議買進', marker=dict(symbol='triangle-up', size=12, color='#2ea043')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', name='建議賣出', marker=dict(symbol='triangle-down', size=12, color='#da3633')), row=1, col=1)
         
         if not bench_data.empty and len(bench_data) > 0:
             bench_close = bench_data['Close'] / bench_data['Close'].iloc[0] * data['Close'].iloc[0]
@@ -231,18 +194,7 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("### 🎯 量化回測表現與每筆交易期望值 (EV)")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("總回測交易次數", f"{total_trades} 次")
-        with c2:
-            st.metric("策略勝率", f"{win_rate * 100:.2f}%")
-        with c3:
-            st.metric("平均賺賠比", f"賺 {avg_win*100:.2f}% / 賠 {avg_loss*100:.2f}%")
-        with c4:
-            st.metric("每筆交易期望值 (EV)", f"{expected_value * 100:.2f}%", 
-                      delta="正向優勢" if expected_value > 0 else "負向劣勢")
-
+        # 個人持倉績效與風控評估
         st.markdown("---")
         st.markdown(f"### 🛡️ `{stock_symbol.upper()}` 個人持倉與風險管理")
 
@@ -308,25 +260,22 @@ with tab1:
             }), use_container_width=True)
 
         st.markdown("---")
-        st.markdown("### 🤖 當下技術面綜合操作指引")
-        latest_sma5 = float(data['SMA_5'].iloc[-1])
-        latest_sma20 = float(data['SMA_20'].iloc[-1])
-        latest_rsi = float(data['RSI'].iloc[-1])
-
-        if latest_sma5 > latest_sma20:
+        st.markdown("### 🤖 逢低佈局與進場點判定指引")
+        
+        # 【全新判斷介面】
+        if is_near_low:
+            box_func = st.success
+            action_title = "🔥 接近近期低點 / 適合逢低佈局進場"
+            action_desc = f"目前收盤價 ({current_close:.2f}) 已接近本區間之近期低點 ({recent_low:.2f}) 或 RSI 進入超賣區 (RSI: {latest_rsi:.1f})。符合您尋找低點、適合分批承接的進場時機！"
+        else:
             if latest_rsi > 70:
                 box_func = st.warning
-                action_title, action_desc = "多頭格局但短線過熱（建議觀望 / 逢高分批減碼）", "短期均線大於長期均線，但 RSI 進入 70 超買區，短線留意回檔風險。"
+                action_title = "⚠️ 短線乖離過大 / 暫時不宜追高"
+                action_desc = f"目前 RSI 已來到 {latest_rsi:.1f} 的超買區，股價距離近期低點較遠，建議等待拉回再找買點。"
             else:
-                box_func = st.success
-                action_title, action_desc = "建議偏多操作 / 可考慮續抱", "短期均線大於長期均線且 RSI 處於健康區間，符合多頭趨勢。"
-        else:
-            if latest_rsi < 30:
                 box_func = st.info
-                action_title, action_desc = "空頭排列但跌至超賣區（醞釀反彈 / 可輕倉試單）", "均線雖屬空頭，但 RSI 已跌破 30 超賣區，可能出現跌深反彈機會。"
-            else:
-                box_func = st.error
-                action_title, action_desc = "建議空手觀望 / 暫時避險", "短期均線小於長期均線，趨勢偏空，建議耐心等待黃金交叉訊號。"
+                action_title = "👀 價格震盪整理中 / 可採取分批小額試單"
+                action_desc = f"目前股價處於中段震盪區間（近期低點: {recent_low:.2f} ~ 近期高點: {recent_high:.2f}），若想進場可考慮分批佈局，不需一次重壓。"
 
         box_func(f"#### {action_title}\n{action_desc}")
     else:
